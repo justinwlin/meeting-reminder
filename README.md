@@ -1,138 +1,138 @@
-# ✈️ MeetingReminder
+# MeetingReminder
 
 ![MeetingReminder demo](media/demo.gif)
 
-A macOS app that flies a hand-drawn pink airplane across your screen five
-minutes before each calendar meeting, trailing a pink banner with the meeting
-title — e.g. **"Standup in 5 min"**.
+A macOS menu bar app that reads Google Calendar directly and flies a banner
+across your screen before meetings.
 
-Reads from your Mac's Calendar.app (so iCloud, Google, Exchange — anything
-you've connected — all work). Native SwiftUI · lives in the Dock **and** menu
-bar · floats above fullscreen apps.
+The app uses Google's desktop OAuth flow with PKCE, stores the refresh token in
+Keychain, polls Google Calendar every 60 seconds, and shows the existing
+airplane banner around five minutes before each meeting.
 
 ---
 
 ## Requirements
 
-- **macOS 26 (Tahoe)** or later
-- **Xcode 26** or later
-- Calendar.app with at least one calendar configured
+- macOS 26 (Tahoe) or later
+- Xcode 26 or later
+- A Google Cloud project with the Google Calendar API enabled
 
-No paid Apple Developer account required — the project uses ad-hoc signing
-(`Sign to Run Locally`), so anyone can clone and build with zero setup.
+No paid Apple Developer account is required. The project uses ad-hoc signing
+(`Sign to Run Locally`).
 
 ---
 
-## Setup
+## Google OAuth Setup
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/)
+2. Create or select a project
+3. Enable **Google Calendar API**
+4. Open **APIs & Services -> OAuth consent screen**
+5. Set the app to **Testing**
+6. Add your Google account as a **Test user**
+7. Open **APIs & Services -> Credentials**
+8. Create **OAuth client ID**
+9. Choose **Desktop app**
+10. Download the OAuth client JSON
+
+Place the downloaded JSON at:
+
+```text
+MeetingReminder/GoogleOAuthCredentials.json
+```
+
+That file is git-ignored because it includes the desktop OAuth client secret.
+For this local app, the bundled credential lets users click **Connect Google**
+without pasting anything.
+
+---
+
+## Run Locally
 
 ```bash
-git clone https://github.com/conniexu444/meeting-reminder.git
-cd meeting-reminder
 open MeetingReminder.xcodeproj
 ```
 
-In Xcode, press **⌘R**. The hand-drawn airplane appears in your menu bar and
-Dock.
+In Xcode, press **Cmd+R**.
+
+Then:
+
+1. Click the MeetingReminder menu bar icon
+2. Click **Connect Google**
+3. Complete the browser sign-in
+4. Return to MeetingReminder after the success page appears
+
+The connected email appears in the menu bar popover. Tokens are stored in
+macOS Keychain.
 
 ---
 
-## Usage
+## Testing Reminders
 
-1. Click the ✈️ in the menu bar
-2. Click **Grant Calendar access** → click **Allow** on the macOS privacy prompt
-3. That's it — every 60 seconds the app checks your calendar and shows the
-   flying airplane ~5 minutes before each upcoming meeting
+Use **Test airplane** to verify the visual banner immediately.
 
-The menu also has a **Test airplane** button that triggers the animation
-on demand (with a fake "Test Meeting" event) — useful for tweaking the visuals.
+To test real Google Calendar polling:
 
----
+1. Create a Google Calendar event that starts about 5 minutes from now
+2. Make sure it is on a selected, visible calendar
+3. Keep MeetingReminder running
+4. Wait for the next poll cycle
 
-## Adding your Google Calendar
-
-MeetingReminder reads from Calendar.app via Apple's `EventKit` framework, so
-any calendar you've connected there — including Google — shows up automatically.
-No separate Google integration needed. To connect Google to Calendar.app:
-
-1. Open **System Settings → Internet Accounts** (older macOS: **System
-   Preferences → Internet Accounts**)
-2. Click **Add Account → Google**
-3. Sign in and allow access
-4. Make sure **Calendars** is toggled on for that account
-5. Open **Calendar.app** and confirm your Google events appear
-6. Back in MeetingReminder, click **Test airplane** to confirm — or wait for
-   the next real meeting
-
-No API keys, no OAuth client setup, no developer console.
-
-If Google events aren't appearing in Calendar.app yet, give it a minute to
-sync, then quit and reopen MeetingReminder so it re-reads the calendar list.
+The app checks every 60 seconds and fires when a meeting is roughly 4-6 minutes
+away.
 
 ---
 
-## Customization
+## How It Works
 
-### Visuals — `MeetingReminder/AirplaneView.swift`
-
-| What | Where |
-|---|---|
-| Flight duration (slower/faster) | `flightDuration` |
-| Plane size | `Image("airplane")` → `frame(width:height:)` |
-| Banner padding (text-to-edge) | `padding(.horizontal:)` / `padding(.vertical:)` |
-| Banner-plane overlap | `HStack(spacing:)` |
-| Font / text size / color | `font(.custom("Comic Sans MS", size:))`, `foregroundStyle(...)` |
-| Vertical screen position | `MeetingReminder/AirplaneOverlayWindow.swift` → `yPos` |
-
-### Alert timing — `MeetingReminder/CalendarPoller.swift`
-
-```swift
-static let alertMinutesBefore = 5   // change to alert at a different lead time
-```
-
-### Artwork
-
-Swap the airplane, banner, app icon, or menu bar icon by replacing the PNGs in:
-- `MeetingReminder/Assets.xcassets/airplane.imageset/` — flying airplane (right-facing)
-- `MeetingReminder/Assets.xcassets/banner.imageset/` — pink banner background
-- `MeetingReminder/Assets.xcassets/AppIcon.appiconset/` — Dock + Finder icon
-- `MeetingReminder/Assets.xcassets/menubar.imageset/` — menu bar silhouette (template image, monochrome on transparent)
+- **Menu bar app**: `MeetingReminderApp.swift` uses `MenuBarExtra`
+- **OAuth config**: `GoogleOAuthConfig.swift` loads the bundled
+  `GoogleOAuthCredentials.json` desktop credential
+- **OAuth**: `GoogleOAuthService.swift` opens Google sign-in in the browser,
+  uses a localhost callback, exchanges the authorization code for tokens, and
+  refreshes access tokens when needed
+- **Token storage**: `KeychainStore.swift` stores the Google credential locally
+- **Calendar API**: `GoogleCalendarService.swift` reads selected Google
+  calendars and events for the next hour
+- **Polling**: `CalendarPoller.swift` checks every 60 seconds and prevents
+  duplicate alerts during the current app session
+- **Banner**: `AirplaneOverlayWindow.swift` and `AirplaneView.swift` draw the
+  floating airplane banner above other windows
 
 ---
 
-## How it works
+## Project Structure
 
-- **Menu bar + Dock app** — `MenuBarExtra` for the menu, regular `NSApplication`
-  for the Dock presence
-- **Calendar access** — `EventKit` with a one-time macOS privacy prompt. Reads
-  from every calendar configured in Calendar.app, including synced Google /
-  iCloud / Exchange accounts
-- **Polling** — every 60 seconds, fetches the next hour of events; an in-memory
-  set prevents firing the same alert twice
-- **The airplane** — a borderless, transparent `NSPanel` at screen-saver
-  window level so it floats above every other window, including fullscreen apps.
-  Inside is a SwiftUI view that animates `xOffset` from off-left to off-right,
-  fading out at the end.
-
----
-
-## Project structure
-
-```
+```text
 MeetingReminder/
-├── MeetingReminderApp.swift     # @main + MenuBarExtra
-├── AppController.swift          # Coordinator: EventKit + poller + overlay
-├── MenuBarView.swift            # Status / Grant access / Test / Quit
-├── CalendarSource.swift         # CalendarEvent + provider protocol
-├── AppleCalendarService.swift   # EventKit implementation
-├── CalendarPoller.swift         # 60s timer, fires onMeetingSoon
-├── AirplaneView.swift           # SwiftUI airplane + banner animation
-├── AirplaneOverlayWindow.swift  # Transparent NSPanel above everything
-├── MeetingReminder.entitlements # Sandbox disabled
-└── Assets.xcassets/             # Airplane, banner, app icon, menu bar icon
+├── MeetingReminderApp.swift
+├── AppController.swift
+├── MenuBarView.swift
+├── CalendarSource.swift
+├── GoogleOAuthService.swift
+├── GoogleOAuthConfig.swift
+├── GoogleCalendarService.swift
+├── LocalOAuthRedirectServer.swift
+├── KeychainStore.swift
+├── CalendarPoller.swift
+├── AirplaneView.swift
+├── AirplaneOverlayWindow.swift
+├── MeetingReminder.entitlements
+└── Assets.xcassets/
 ```
+
+---
+
+## Current Limitations
+
+- The first pass stores one connected Google account
+- It reads selected visible calendars from that account
+- Per-meeting opt-in/opt-out controls are not implemented yet
+- Notifications are custom overlay banners, not macOS Notification Center banners
+- The local OAuth credential JSON is intentionally not committed
 
 ---
 
 ## License
 
-MIT — do what you want.
+MIT

@@ -1,6 +1,10 @@
 # macOS
 .DS_Store
 
+# Local Google OAuth desktop credential downloaded from Google Cloud.
+# This can be bundled for local builds, but should not be committed.
+MeetingReminder/GoogleOAuthCredentials.json
+
 # Xcode
 xcuserdata/
 *.xcuserstate
@@ -23,4 +27,3 @@ build/
 Packages/
 Package.pins
 Package.resolved
-
