@@ -42,6 +42,16 @@ struct MenuBarView: View {
 
             Divider()
 
+            Button {
+                controller.openPlanner()
+            } label: {
+                Label("Day planner", systemImage: "calendar")
+            }
+            .buttonStyle(.plain)
+            .disabled(!controller.hasGoogleAccess)
+
+            Divider()
+
             // Speed picker — how long the plane takes to cross the screen
             VStack(alignment: .leading, spacing: 4) {
                 Text("Plane speed")

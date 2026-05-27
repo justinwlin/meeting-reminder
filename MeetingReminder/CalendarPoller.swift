@@ -9,6 +9,7 @@ final class CalendarPoller {
     private static let alertWindowHigh = alertMinutesBefore + 1
 
     var onMeetingSoon: ((CalendarEvent, Int) -> Void)?
+    var shouldNotify: (CalendarEvent) -> Bool = { _ in true }
 
     private let service: any CalendarSourceProvider
     private var timer: Timer?
@@ -42,6 +43,7 @@ final class CalendarPoller {
                 let minutes = Int(event.startDate.timeIntervalSince(now) / 60)
                 guard minutes >= Self.alertWindowLow,
                       minutes <= Self.alertWindowHigh,
+                      shouldNotify(event),
                       !notifiedIDs.contains(event.id) else { continue }
 
                 notifiedIDs.insert(event.id)

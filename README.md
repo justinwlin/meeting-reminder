@@ -65,6 +65,21 @@ Then:
 The connected email appears in the menu bar popover. Tokens are stored in
 macOS Keychain.
 
+## Day Planner
+
+After connecting Google Calendar, open **Day planner** from the menu bar popover.
+The planner shows one day at a time, with previous/next day controls and a week
+strip for jumping around the current week.
+
+Each timed event has a checkbox:
+
+- Checked events can trigger the banner reminder.
+- Unchecked events are skipped by the reminder poller.
+- Choices are stored locally in `UserDefaults`.
+
+The planner refreshes when it opens, when you change dates, when you click the
+refresh button, and every 60 seconds while the planner window is open.
+
 ---
 
 ## Testing Reminders
@@ -78,8 +93,8 @@ To test real Google Calendar polling:
 3. Keep MeetingReminder running
 4. Wait for the next poll cycle
 
-The app checks every 60 seconds and fires when a meeting is roughly 4-6 minutes
-away.
+The background reminder poller checks Google Calendar every 60 seconds, looks
+one hour ahead, and fires when a checked meeting is roughly 4-6 minutes away.
 
 ---
 
@@ -93,9 +108,11 @@ away.
   refreshes access tokens when needed
 - **Token storage**: `KeychainStore.swift` stores the Google credential locally
 - **Calendar API**: `GoogleCalendarService.swift` reads selected Google
-  calendars and events for the next hour
+  calendars and events for the next hour or selected planner day
 - **Polling**: `CalendarPoller.swift` checks every 60 seconds and prevents
   duplicate alerts during the current app session
+- **Planner**: `DayPlannerView.swift` lets you inspect a day/week and enable or
+  disable reminders per event
 - **Banner**: `AirplaneOverlayWindow.swift` and `AirplaneView.swift` draw the
   floating airplane banner above other windows
 
@@ -108,6 +125,7 @@ MeetingReminder/
 ├── MeetingReminderApp.swift
 ├── AppController.swift
 ├── MenuBarView.swift
+├── DayPlannerView.swift
 ├── CalendarSource.swift
 ├── GoogleOAuthService.swift
 ├── GoogleOAuthConfig.swift
@@ -127,7 +145,7 @@ MeetingReminder/
 
 - The first pass stores one connected Google account
 - It reads selected visible calendars from that account
-- Per-meeting opt-in/opt-out controls are not implemented yet
+- Per-meeting opt-in/opt-out is local to this Mac
 - Notifications are custom overlay banners, not macOS Notification Center banners
 - The local OAuth credential JSON is intentionally not committed
 

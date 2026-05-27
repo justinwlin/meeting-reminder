@@ -12,14 +12,23 @@ final class GoogleCalendarService: CalendarSourceProvider {
     }
 
     func fetchUpcomingEvents() async throws -> [CalendarEvent] {
+        try await fetchEvents(start: Date(), end: Date().addingTimeInterval(3_600))
+    }
+
+    func fetchEvents(on day: Date) async throws -> [CalendarEvent] {
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: day)
+        let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86_400)
+        return try await fetchEvents(start: start, end: end)
+    }
+
+    private func fetchEvents(start: Date, end: Date) async throws -> [CalendarEvent] {
         guard let credentials = credentialsProvider() else {
             throw GoogleOAuthError.missingClientID
         }
 
         let accessToken = try await oauthService.accessToken(credentials: credentials)
         let calendars = try await fetchCalendars(accessToken: accessToken)
-        let now = Date()
-        let oneHourLater = now.addingTimeInterval(3_600)
 
         var events: [CalendarEvent] = []
         for calendar in calendars {
@@ -27,8 +36,8 @@ final class GoogleCalendarService: CalendarSourceProvider {
                 calendarID: calendar.id,
                 calendarSummary: calendar.summary,
                 accessToken: accessToken,
-                start: now,
-                end: oneHourLater
+                start: start,
+                end: end
             )
             events.append(contentsOf: calendarEvents)
         }
@@ -67,7 +76,7 @@ final class GoogleCalendarService: CalendarSourceProvider {
             URLQueryItem(name: "timeMax", value: Self.rfc3339String(from: end)),
             URLQueryItem(name: "singleEvents", value: "true"),
             URLQueryItem(name: "orderBy", value: "startTime"),
-            URLQueryItem(name: "maxResults", value: "50"),
+            URLQueryItem(name: "maxResults", value: "250"),
             URLQueryItem(name: "showDeleted", value: "false")
         ]
 
