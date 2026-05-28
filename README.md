@@ -74,6 +74,10 @@ All local builds store connected Google account tokens in:
 That avoids repeated Keychain prompts while the app is unsigned or ad-hoc signed
 from Xcode. The file is created with user-only permissions.
 
+Use **Delete all local data** in the menu bar popover to remove connected
+account tokens and reset local preferences like reminder choices, lead time, and
+plane speed.
+
 ## Day Planner
 
 After connecting Google Calendar, open **Day planner** from the menu bar popover.

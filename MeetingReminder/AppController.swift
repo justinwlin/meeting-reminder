@@ -19,6 +19,7 @@ final class AppController: ObservableObject {
     static let reminderLeadMinuteOptions = [1, 3, 5, 10, 15, 30]
     private static let upcomingEventWindow: TimeInterval = 7 * 86_400
     private static let reminderTriggerGraceInterval: TimeInterval = 60
+    private static let flightDurationKey = "flightDuration"
 
     var hasGoogleAccess: Bool { !googleAccounts.isEmpty }
 
@@ -41,7 +42,7 @@ final class AppController: ObservableObject {
         }
     }
     @Published var flightDuration: Double {
-        didSet { UserDefaults.standard.set(flightDuration, forKey: "flightDuration") }
+        didSet { UserDefaults.standard.set(flightDuration, forKey: Self.flightDurationKey) }
     }
 
     /// Preset speeds (seconds for the plane to cross the screen).
@@ -71,7 +72,7 @@ final class AppController: ObservableObject {
         let savedLead = UserDefaults.standard.object(forKey: Self.reminderLeadMinutesKey) as? Int
         self.reminderLeadMinutes = max(1, savedLead ?? CalendarPoller.defaultAlertMinutesBefore)
 
-        let saved = UserDefaults.standard.double(forKey: "flightDuration")
+        let saved = UserDefaults.standard.double(forKey: Self.flightDurationKey)
         self.flightDuration = saved > 0 ? saved : Self.normalSpeed
 
         googleAccounts = oauthService.connectedAccounts
@@ -136,6 +137,23 @@ final class AppController: ObservableObject {
             self.stopPolling()
             self.resetCalendarData()
             self.authError = nil
+        }
+    }
+
+    func deleteAllLocalData() {
+        updateUI {
+            self.googleOAuthService.signOutAll()
+            self.stopPolling()
+            self.overlayWindows.forEach { $0.close() }
+            self.overlayWindows = []
+            self.googleAccounts = []
+            self.disabledReminderEventIDs = []
+            self.reminderLeadMinutes = CalendarPoller.defaultAlertMinutesBefore
+            self.flightDuration = Self.normalSpeed
+            self.plannerDate = Calendar.current.startOfDay(for: Date())
+            self.authError = nil
+            self.resetCalendarData()
+            self.removeStoredPreferences()
         }
     }
 
@@ -390,6 +408,17 @@ final class AppController: ObservableObject {
 
     private func persistDisabledReminderEventIDs() {
         UserDefaults.standard.set(Array(disabledReminderEventIDs), forKey: Self.disabledReminderEventIDsKey)
+    }
+
+    private func removeStoredPreferences() {
+        if let bundleIdentifier = Bundle.main.bundleIdentifier {
+            UserDefaults.standard.removePersistentDomain(forName: bundleIdentifier)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.disabledReminderEventIDsKey)
+            UserDefaults.standard.removeObject(forKey: Self.reminderLeadMinutesKey)
+            UserDefaults.standard.removeObject(forKey: Self.flightDurationKey)
+        }
+        UserDefaults.standard.synchronize()
     }
 }
 

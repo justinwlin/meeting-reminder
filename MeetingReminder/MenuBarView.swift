@@ -58,6 +58,16 @@ struct MenuBarView: View {
             Divider()
 
             Button {
+                controller.deleteAllLocalData()
+            } label: {
+                Label("Delete all local data", systemImage: "trash")
+                    .foregroundStyle(.red)
+            }
+            .buttonStyle(.plain)
+
+            Divider()
+
+            Button {
                 NSApplication.shared.terminate(nil)
             } label: {
                 Label("Quit MeetingReminder", systemImage: "power")
