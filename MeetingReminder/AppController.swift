@@ -175,7 +175,15 @@ final class AppController: ObservableObject {
 
     func showPlannerDate(_ date: Date) {
         updateUI {
-            self.plannerDate = Calendar.current.startOfDay(for: date)
+            let nextDate = Calendar.current.startOfDay(for: date)
+            let didChangeDay = !Calendar.current.isDate(self.plannerDate, inSameDayAs: nextDate)
+            self.plannerDate = nextDate
+            if didChangeDay {
+                self.plannerRefreshGeneration += 1
+                self.plannerEvents = []
+                self.plannerError = nil
+                self.isLoadingPlannerEvents = self.hasGoogleAccess
+            }
             self.refreshPlannerEvents()
         }
     }
