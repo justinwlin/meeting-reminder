@@ -11,6 +11,10 @@ The app uses Google's desktop OAuth flow with PKCE, stores Google account tokens
 locally, refreshes Google Calendar on launch and every 10 minutes, and shows
 the existing airplane banner before each meeting using your selected lead time.
 
+This repository intentionally does not publish a prebuilt macOS app binary.
+Build it locally with your own Google OAuth desktop client so your calendar
+access is tied to your Google Cloud project, not someone else's OAuth app.
+
 ## Credits
 
 This app is based on the original
@@ -25,6 +29,7 @@ foundation.
 - macOS 26 (Tahoe) or later
 - Xcode 26 or later
 - A Google Cloud project with the Google Calendar API enabled
+- Your own Google OAuth desktop client JSON
 
 No paid Apple Developer account is required. The project uses ad-hoc signing
 (`Sign to Run Locally`).
@@ -36,13 +41,30 @@ No paid Apple Developer account is required. The project uses ad-hoc signing
 1. Open [Google Cloud Console](https://console.cloud.google.com/)
 2. Create or select a project
 3. Enable **Google Calendar API**
-4. Open **APIs & Services -> OAuth consent screen**
-5. Set the app to **Testing**
-6. Add the Google accounts you want to test as **Test users**
-7. Open **APIs & Services -> Credentials**
-8. Create **OAuth client ID**
-9. Choose **Desktop app**
-10. Download the OAuth client JSON
+4. Open **Google Auth Platform -> Branding**
+5. Configure the OAuth consent screen for your app
+6. Open **Google Auth Platform -> Data Access**
+7. Add these scopes:
+   - `openid`
+   - `email`
+   - `profile`
+   - `https://www.googleapis.com/auth/calendar.calendarlist.readonly`
+   - `https://www.googleapis.com/auth/calendar.events.readonly`
+8. Open **Google Auth Platform -> Audience**
+9. Use **External** for personal Gmail accounts, or **Internal** if this is only
+   for your Google Workspace organization
+10. For everyday use, publish the app with publishing status **In production**
+11. Open **APIs & Services -> Credentials**
+12. Create an **OAuth client ID**
+13. Choose **Desktop app**
+14. Download the OAuth client JSON
+
+Google OAuth apps left in **Testing** can issue refresh tokens that expire after
+7 days for external apps using non-basic scopes. MeetingReminder needs a refresh
+token so it can keep working after the first login, so use **Testing** only for
+short experiments and move your own OAuth app to **In production** for regular
+use. If Google shows an unverified-app warning or requests app verification for
+broader public use, complete Google's verification process for your project.
 
 Place the downloaded JSON at:
 
@@ -51,12 +73,13 @@ MeetingReminder/GoogleOAuthCredentials.json
 ```
 
 That file is git-ignored because it includes the desktop OAuth client secret.
-For this local app, the bundled credential lets users click **Connect Google**
-without pasting anything.
+Do not commit it and do not distribute a built app that contains your personal
+OAuth credential. Each person building MeetingReminder should create their own
+Google Cloud OAuth desktop client.
 
 ---
 
-## Run Locally
+## Build And Run
 
 ```bash
 open MeetingReminder.xcodeproj
