@@ -9,6 +9,13 @@ The app uses Google's desktop OAuth flow with PKCE, stores Google account tokens
 locally, refreshes Google Calendar on launch and every 10 minutes, and shows
 the existing airplane banner before each meeting using your selected lead time.
 
+## Credits
+
+This app is based on the original
+[conniexu444/meeting-reminder](https://github.com/conniexu444/meeting-reminder)
+project. Credit and thanks to Connie Xu for the original repository and app
+foundation.
+
 ---
 
 ## Requirements
