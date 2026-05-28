@@ -111,7 +111,7 @@ one hour ahead, and fires when a checked meeting is roughly 4-6 minutes away.
   calendars and events for the next hour or selected planner day
 - **Polling**: `CalendarPoller.swift` checks every 60 seconds and prevents
   duplicate alerts during the current app session
-- **Planner**: `DayPlannerView.swift` lets you inspect a day/week and enable or
+- **Planner**: `MenuBarView.swift` lets you inspect a day/week and enable or
   disable reminders per event
 - **Banner**: `AirplaneOverlayWindow.swift` and `AirplaneView.swift` draw the
   floating airplane banner above other windows
@@ -125,7 +125,6 @@ MeetingReminder/
 ├── MeetingReminderApp.swift
 ├── AppController.swift
 ├── MenuBarView.swift
-├── DayPlannerView.swift
 ├── CalendarSource.swift
 ├── GoogleOAuthService.swift
 ├── GoogleOAuthConfig.swift
