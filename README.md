@@ -94,6 +94,10 @@ Use **Censor mode** when demoing or screen sharing. It replaces account emails
 and meeting titles with generic labels in the menu, planner, and reminder
 banner while leaving the underlying calendar data unchanged.
 
+If the macOS menu bar gets crowded, use the Dock/app icon as a fallback:
+right-click **MeetingReminder** in the Dock and choose **Show Quick Menu**.
+Clicking the Dock icon also reopens the quick menu window.
+
 ## Day Planner
 
 After connecting Google Calendar, open **Day planner** from the menu bar popover.

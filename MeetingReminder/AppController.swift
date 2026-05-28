@@ -63,6 +63,8 @@ final class AppController: ObservableObject {
     private var poller: CalendarPoller?
     private var calendarRefreshTimer: Timer?
     private var overlayWindows: [AirplaneOverlayWindow] = []
+    private var quickMenuWindow: NSWindow?
+    private var quickMenuWindowDelegate: PlannerWindowDelegate?
     private var plannerWindow: NSWindow?
     private var plannerWindowDelegate: PlannerWindowDelegate?
     private var calendarRefreshGeneration = 0
@@ -210,6 +212,41 @@ final class AppController: ObservableObject {
         if !NSWorkspace.shared.open(settingsURL) {
             NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
         }
+    }
+
+    func openQuickMenuWindow() {
+        refreshLaunchAtLoginStatus()
+        if let quickMenuWindow {
+            quickMenuWindow.makeKeyAndOrderFront(nil)
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let view = ScrollView {
+            MenuBarView()
+                .environmentObject(self)
+        }
+        let hostingView = NSHostingView(rootView: view)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 680),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "MeetingReminder Quick Menu"
+        window.contentView = hostingView
+        window.minSize = NSSize(width: 340, height: 420)
+        window.isReleasedWhenClosed = false
+        let delegate = PlannerWindowDelegate { [weak self] in
+            self?.quickMenuWindow = nil
+            self?.quickMenuWindowDelegate = nil
+        }
+        window.delegate = delegate
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        quickMenuWindow = window
+        quickMenuWindowDelegate = delegate
     }
 
     func openPlanner() {
