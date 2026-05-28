@@ -78,6 +78,11 @@ Use **Delete all local data** in the menu bar popover to remove connected
 account tokens and reset local preferences like reminder choices, lead time, and
 plane speed.
 
+Use **Launch at login** in the menu bar popover to register or unregister the
+app as a macOS Login Item. The same section shows the current Login Items
+status and includes an **Open Login Items** shortcut to System Settings, where
+you can also disable or remove the autostart entry.
+
 ## Day Planner
 
 After connecting Google Calendar, open **Day planner** from the menu bar popover.

@@ -11,6 +11,10 @@ struct MenuBarView: View {
         VStack(alignment: .leading, spacing: 10) {
             accountSection
 
+            Divider()
+
+            launchAtLoginSection
+
             if controller.hasGoogleAccess {
                 Divider()
                 nextAlarmsSection
@@ -76,9 +80,48 @@ struct MenuBarView: View {
         }
         .padding(14)
         .frame(width: 320)
+        .onAppear {
+            controller.refreshLaunchAtLoginStatus()
+        }
         .onReceive(menuClock) { tick in
             now = tick
+            controller.refreshLaunchAtLoginStatus()
         }
+    }
+
+    private var launchAtLoginSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(isOn: launchAtLoginBinding) {
+                Label("Launch at login", systemImage: "power")
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .toggleStyle(.switch)
+
+            Text(controller.launchAtLoginStatusText)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+
+            if let error = controller.launchAtLoginError {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Button {
+                controller.openLoginItemsSettings()
+            } label: {
+                Label("Open Login Items", systemImage: "gearshape")
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var launchAtLoginBinding: Binding<Bool> {
+        Binding(
+            get: { controller.isLaunchAtLoginEnabled },
+            set: { controller.setLaunchAtLogin($0) }
+        )
     }
 
     private var accountSection: some View {

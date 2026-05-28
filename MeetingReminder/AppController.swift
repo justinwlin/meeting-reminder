@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import Combine
+import ServiceManagement
 import SwiftUI
 
 struct ReminderAlarm: Identifiable {
@@ -34,6 +35,9 @@ final class AppController: ObservableObject {
     @Published var plannerEvents: [CalendarEvent] = []
     @Published var isLoadingPlannerEvents: Bool = false
     @Published var plannerError: String?
+    @Published private(set) var isLaunchAtLoginEnabled: Bool = false
+    @Published private(set) var launchAtLoginStatusText: String = "Launch at login is off"
+    @Published var launchAtLoginError: String?
     @Published private(set) var disabledReminderEventIDs: Set<String>
     @Published var reminderLeadMinutes: Int {
         didSet {
@@ -76,6 +80,7 @@ final class AppController: ObservableObject {
         self.flightDuration = saved > 0 ? saved : Self.normalSpeed
 
         googleAccounts = oauthService.connectedAccounts
+        refreshLaunchAtLoginStatus()
         startPollingIfReady()
     }
 
@@ -142,6 +147,7 @@ final class AppController: ObservableObject {
 
     func deleteAllLocalData() {
         updateUI {
+            self.setLaunchAtLogin(false)
             self.googleOAuthService.signOutAll()
             self.stopPolling()
             self.overlayWindows.forEach { $0.close() }
@@ -154,6 +160,49 @@ final class AppController: ObservableObject {
             self.authError = nil
             self.resetCalendarData()
             self.removeStoredPreferences()
+        }
+    }
+
+    func refreshLaunchAtLoginStatus() {
+        switch SMAppService.mainApp.status {
+        case .enabled:
+            isLaunchAtLoginEnabled = true
+            launchAtLoginStatusText = "Enabled in macOS Login Items"
+        case .requiresApproval:
+            isLaunchAtLoginEnabled = false
+            launchAtLoginStatusText = "Needs approval in macOS Login Items"
+        case .notFound:
+            isLaunchAtLoginEnabled = false
+            launchAtLoginStatusText = "Login item app location was not found"
+        case .notRegistered:
+            isLaunchAtLoginEnabled = false
+            launchAtLoginStatusText = "Launch at login is off"
+        @unknown default:
+            isLaunchAtLoginEnabled = false
+            launchAtLoginStatusText = "Launch at login status is unknown"
+        }
+    }
+
+    func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                if SMAppService.mainApp.status != .enabled {
+                    try SMAppService.mainApp.register()
+                }
+            } else if SMAppService.mainApp.status != .notRegistered {
+                try SMAppService.mainApp.unregister()
+            }
+            launchAtLoginError = nil
+        } catch {
+            launchAtLoginError = error.localizedDescription
+        }
+        refreshLaunchAtLoginStatus()
+    }
+
+    func openLoginItemsSettings() {
+        let settingsURL = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension")!
+        if !NSWorkspace.shared.open(settingsURL) {
+            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
         }
     }
 
