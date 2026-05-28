@@ -22,7 +22,7 @@ final class GoogleCalendarService: CalendarSourceProvider {
         return try await fetchEvents(start: start, end: end)
     }
 
-    private func fetchEvents(start: Date, end: Date) async throws -> [CalendarEvent] {
+    func fetchEvents(start: Date, end: Date) async throws -> [CalendarEvent] {
         guard let credentials = credentialsProvider() else {
             throw GoogleOAuthError.missingClientID
         }

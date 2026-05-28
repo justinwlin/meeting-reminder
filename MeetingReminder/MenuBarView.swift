@@ -3,6 +3,9 @@ import SwiftUI
 
 struct MenuBarView: View {
     @EnvironmentObject var controller: AppController
+    @State private var now = Date()
+
+    private let menuClock = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -39,6 +42,11 @@ struct MenuBarView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(controller.isConnectingGoogle)
+            }
+
+            if controller.hasGoogleAccess {
+                Divider()
+                nextAlarmsSection
             }
 
             Divider()
@@ -86,14 +94,131 @@ struct MenuBarView: View {
             .buttonStyle(.plain)
         }
         .padding(14)
-        .frame(width: 260)
+        .frame(width: 320)
+        .onReceive(menuClock) { tick in
+            now = tick
+        }
+    }
+
+    private var nextAlarmsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text("Next alarms")
+                    .font(.system(size: 12, weight: .semibold))
+
+                Spacer()
+
+                Button {
+                    controller.refreshCalendarData()
+                } label: {
+                    Label(controller.isRefreshingCalendar ? "Refreshing" : "Refresh", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.plain)
+                .disabled(controller.isRefreshingCalendar)
+            }
+
+            let alarms = controller.nextReminderAlarms(now: now)
+            if alarms.isEmpty {
+                Label(controller.isRefreshingCalendar ? "Refreshing calendar" : "No upcoming enabled alarms", systemImage: controller.isRefreshingCalendar ? "arrow.clockwise" : "bell.slash")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(alarms) { alarm in
+                        NextAlarmRow(alarm: alarm, now: now)
+                    }
+                }
+            }
+
+            if let error = controller.calendarRefreshError {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Text(refreshStatusText)
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var refreshStatusText: String {
+        let intervalMinutes = Int(AppController.calendarRefreshInterval / 60)
+        if controller.isRefreshingCalendar {
+            return "Refreshing calendar now"
+        }
+        if let date = controller.lastCalendarRefreshDate {
+            return "Last refreshed \(date.formatted(.dateTime.hour().minute())) · every \(intervalMinutes) min"
+        }
+        return "Refreshes on launch and every \(intervalMinutes) min"
+    }
+}
+
+private struct NextAlarmRow: View {
+    let alarm: ReminderAlarm
+    let now: Date
+
+    private var calendar: Calendar { Calendar.current }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "bell.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.orange)
+                .frame(width: 16, height: 18)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(alarm.event.title)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+
+                Text(triggerSummary)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private var triggerSummary: String {
+        "\(relativeTriggerText) · starts \(timeText(for: alarm.event.startDate))"
+    }
+
+    private var relativeTriggerText: String {
+        let seconds = alarm.triggerDate.timeIntervalSince(now)
+        if seconds <= 0 {
+            return "Triggering now"
+        }
+
+        let minutes = Int((seconds / 60).rounded(.up))
+        if minutes < 60 {
+            return "In \(minutes) min"
+        }
+
+        let hours = minutes / 60
+        if hours < 24 {
+            return "In \(hours) hr"
+        }
+
+        return alarm.triggerDate.formatted(.dateTime.weekday(.abbreviated).hour().minute())
+    }
+
+    private func timeText(for date: Date) -> String {
+        if calendar.isDateInToday(date) {
+            return date.formatted(.dateTime.hour().minute())
+        }
+        return date.formatted(.dateTime.weekday(.abbreviated).hour().minute())
     }
 }
 
 struct DayPlannerView: View {
     @EnvironmentObject var controller: AppController
 
-    private let refreshTimer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
+    private let refreshTimer = Timer.publish(every: AppController.calendarRefreshInterval, on: .main, in: .common).autoconnect()
     private var calendar: Calendar { Calendar.current }
 
     var body: some View {

@@ -6,8 +6,8 @@ A macOS menu bar app that reads Google Calendar directly and flies a banner
 across your screen before meetings.
 
 The app uses Google's desktop OAuth flow with PKCE, stores the refresh token
-locally, polls Google Calendar every 60 seconds, and shows the existing airplane
-banner around five minutes before each meeting.
+locally, refreshes Google Calendar on launch and every 10 minutes, and shows
+the existing airplane banner around five minutes before each meeting.
 
 ---
 
@@ -85,8 +85,12 @@ Each timed event has a checkbox:
 - Unchecked events are skipped by the reminder poller.
 - Choices are stored locally in `UserDefaults`.
 
+The menu bar popover shows the next three enabled reminder alarms and includes
+a manual refresh button. Calendar data refreshes on app launch, when you click
+refresh, and every 10 minutes while the app is running.
+
 The planner refreshes when it opens, when you change dates, when you click the
-refresh button, and every 60 seconds while the planner window is open.
+refresh button, and every 10 minutes while the planner window is open.
 
 ---
 
@@ -101,8 +105,9 @@ To test real Google Calendar polling:
 3. Keep MeetingReminder running
 4. Wait for the next poll cycle
 
-The background reminder poller checks Google Calendar every 60 seconds, looks
-one hour ahead, and fires when a checked meeting is roughly 4-6 minutes away.
+The app refreshes Google Calendar every 10 minutes and keeps a local cache of
+upcoming events. The background reminder checker scans that cached list every
+30 seconds and fires when a checked meeting is roughly 4-6 minutes away.
 
 ---
 
@@ -117,9 +122,11 @@ one hour ahead, and fires when a checked meeting is roughly 4-6 minutes away.
 - **Token storage**: `GoogleOAuthService.swift` stores Google credentials in a
   local app-support file with user-only permissions
 - **Calendar API**: `GoogleCalendarService.swift` reads selected Google
-  calendars and events for the next hour or selected planner day
-- **Polling**: `CalendarPoller.swift` checks every 60 seconds and prevents
-  duplicate alerts during the current app session
+  calendars and events for the upcoming cache window or selected planner day
+- **Refresh**: `AppController.swift` refreshes calendar data on launch, manual
+  refresh, and every 10 minutes
+- **Polling**: `CalendarPoller.swift` checks cached events every 30 seconds and
+  prevents duplicate alerts during the current app session
 - **Planner**: `MenuBarView.swift` lets you inspect a day/week and enable or
   disable reminders per event
 - **Banner**: `AirplaneOverlayWindow.swift` and `AirplaneView.swift` draw the
