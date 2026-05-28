@@ -90,6 +90,10 @@ app as a macOS Login Item. The same section shows the current Login Items
 status and includes an **Open Login Items** shortcut to System Settings, where
 you can also disable or remove the autostart entry.
 
+Use **Censor mode** when demoing or screen sharing. It replaces account emails
+and meeting titles with generic labels in the menu, planner, and reminder
+banner while leaving the underlying calendar data unchanged.
+
 ## Day Planner
 
 After connecting Google Calendar, open **Day planner** from the menu bar popover.

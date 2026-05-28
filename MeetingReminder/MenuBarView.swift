@@ -9,6 +9,10 @@ struct MenuBarView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            privacySection
+
+            Divider()
+
             accountSection
 
             Divider()
@@ -89,6 +93,14 @@ struct MenuBarView: View {
         }
     }
 
+    private var privacySection: some View {
+        Toggle(isOn: $controller.isCensorModeEnabled) {
+            Label("Censor mode", systemImage: "eye.slash")
+                .font(.system(size: 12, weight: .medium))
+        }
+        .toggleStyle(.switch)
+    }
+
     private var launchAtLoginSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             Toggle(isOn: launchAtLoginBinding) {
@@ -136,11 +148,11 @@ struct MenuBarView: View {
 
             if controller.googleAccounts.isEmpty == false {
                 VStack(alignment: .leading, spacing: 6) {
-                    ForEach(controller.googleAccounts) { account in
+                    ForEach(Array(controller.googleAccounts.enumerated()), id: \.element.id) { index, account in
                         HStack(spacing: 8) {
                             Image(systemName: "person.crop.circle")
                                 .foregroundStyle(.secondary)
-                            Text(account.displayName)
+                            Text(accountDisplayName(for: account, index: index))
                                 .font(.system(size: 12))
                                 .lineLimit(1)
 
@@ -177,12 +189,16 @@ struct MenuBarView: View {
             }
 
             if let authError = controller.authError {
-                Text(authError)
+                Text(controller.isCensorModeEnabled ? "Google connection error." : authError)
                     .font(.system(size: 11))
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    private func accountDisplayName(for account: ConnectedGoogleAccount, index: Int) -> String {
+        controller.isCensorModeEnabled ? "Google Account \(index + 1)" : account.displayName
     }
 
     private var reminderLeadSection: some View {
@@ -235,13 +251,17 @@ struct MenuBarView: View {
             } else {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(alarms) { alarm in
-                        NextAlarmRow(alarm: alarm, now: now)
+                        NextAlarmRow(
+                            alarm: alarm,
+                            now: now,
+                            isCensoring: controller.isCensorModeEnabled
+                        )
                     }
                 }
             }
 
             if let error = controller.calendarRefreshError {
-                Text(error)
+                Text(controller.isCensorModeEnabled ? "Calendar refresh error." : error)
                     .font(.system(size: 11))
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
@@ -268,6 +288,7 @@ struct MenuBarView: View {
 private struct NextAlarmRow: View {
     let alarm: ReminderAlarm
     let now: Date
+    let isCensoring: Bool
 
     private var calendar: Calendar { Calendar.current }
 
@@ -279,7 +300,7 @@ private struct NextAlarmRow: View {
                 .frame(width: 16, height: 18)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(alarm.event.title)
+                Text(displayTitle)
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
 
@@ -294,9 +315,15 @@ private struct NextAlarmRow: View {
         .padding(.vertical, 2)
     }
 
+    private var displayTitle: String {
+        isCensoring ? "Private meeting" : alarm.event.title
+    }
+
     private var triggerSummary: String {
         var parts = [relativeTriggerText, "starts \(timeText(for: alarm.event.startDate))"]
-        if let accountEmail = alarm.event.accountEmail, accountEmail.isEmpty == false {
+        if !isCensoring,
+           let accountEmail = alarm.event.accountEmail,
+           accountEmail.isEmpty == false {
             parts.append(accountEmail)
         }
         return parts.joined(separator: " · ")
@@ -436,7 +463,7 @@ struct DayPlannerView: View {
                 Image(systemName: "exclamationmark.triangle")
                     .font(.system(size: 30))
                     .foregroundStyle(.orange)
-                Text(error)
+                Text(controller.isCensorModeEnabled ? "Could not load events." : error)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -450,7 +477,10 @@ struct DayPlannerView: View {
             emptyState(systemImage: "calendar", title: "No timed events")
         } else {
             List(controller.plannerEvents) { event in
-                DayPlannerEventRow(event: event)
+                DayPlannerEventRow(
+                    event: event,
+                    isCensoring: controller.isCensorModeEnabled
+                )
                     .environmentObject(controller)
             }
             .listStyle(.inset)
@@ -496,6 +526,7 @@ struct DayPlannerView: View {
 private struct DayPlannerEventRow: View {
     @EnvironmentObject var controller: AppController
     let event: CalendarEvent
+    let isCensoring: Bool
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -504,7 +535,7 @@ private struct DayPlannerEventRow: View {
                 .toggleStyle(.checkbox)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(event.title)
+                Text(displayTitle)
                     .font(.system(size: 13, weight: .medium))
                     .lineLimit(1)
                 Text(timeRange)
@@ -518,6 +549,10 @@ private struct DayPlannerEventRow: View {
         .padding(.vertical, 5)
     }
 
+    private var displayTitle: String {
+        isCensoring ? "Private meeting" : event.title
+    }
+
     private var reminderBinding: Binding<Bool> {
         Binding(
             get: { controller.isReminderEnabled(for: event) },
@@ -528,7 +563,9 @@ private struct DayPlannerEventRow: View {
     private var timeRange: String {
         let start = event.startDate.formatted(.dateTime.hour().minute())
         let end = event.endDate.formatted(.dateTime.hour().minute())
-        if let accountEmail = event.accountEmail, accountEmail.isEmpty == false {
+        if !isCensoring,
+           let accountEmail = event.accountEmail,
+           accountEmail.isEmpty == false {
             return "\(start) - \(end) · \(accountEmail)"
         }
         return "\(start) - \(end)"

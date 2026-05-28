@@ -16,6 +16,7 @@ struct ReminderAlarm: Identifiable {
 final class AppController: ObservableObject {
     private static let disabledReminderEventIDsKey = "disabledReminderEventIDs"
     private static let reminderLeadMinutesKey = "reminderLeadMinutes"
+    private static let censorModeKey = "censorMode"
     static let calendarRefreshInterval: TimeInterval = 600
     static let reminderLeadMinuteOptions = [1, 3, 5, 10, 15, 30]
     private static let upcomingEventWindow: TimeInterval = 7 * 86_400
@@ -39,6 +40,9 @@ final class AppController: ObservableObject {
     @Published private(set) var launchAtLoginStatusText: String = "Launch at login is off"
     @Published var launchAtLoginError: String?
     @Published private(set) var disabledReminderEventIDs: Set<String>
+    @Published var isCensorModeEnabled: Bool {
+        didSet { UserDefaults.standard.set(isCensorModeEnabled, forKey: Self.censorModeKey) }
+    }
     @Published var reminderLeadMinutes: Int {
         didSet {
             UserDefaults.standard.set(reminderLeadMinutes, forKey: Self.reminderLeadMinutesKey)
@@ -72,6 +76,7 @@ final class AppController: ObservableObject {
         }
         self.plannerDate = Calendar.current.startOfDay(for: Date())
         self.disabledReminderEventIDs = Set(UserDefaults.standard.stringArray(forKey: Self.disabledReminderEventIDsKey) ?? [])
+        self.isCensorModeEnabled = UserDefaults.standard.bool(forKey: Self.censorModeKey)
 
         let savedLead = UserDefaults.standard.object(forKey: Self.reminderLeadMinutesKey) as? Int
         self.reminderLeadMinutes = max(1, savedLead ?? CalendarPoller.defaultAlertMinutesBefore)
@@ -154,6 +159,7 @@ final class AppController: ObservableObject {
             self.overlayWindows = []
             self.googleAccounts = []
             self.disabledReminderEventIDs = []
+            self.isCensorModeEnabled = false
             self.reminderLeadMinutes = CalendarPoller.defaultAlertMinutesBefore
             self.flightDuration = Self.normalSpeed
             self.plannerDate = Calendar.current.startOfDay(for: Date())
@@ -432,9 +438,10 @@ final class AppController: ObservableObject {
 
     private func showAirplane(for event: CalendarEvent, minutesUntil: Int) {
         let duration = flightDuration
+        let title = isCensorModeEnabled ? "Private meeting" : event.title
         DispatchQueue.main.async {
             let window = AirplaneOverlayWindow(
-                meetingTitle:   event.title,
+                meetingTitle:   title,
                 minutesUntil:   minutesUntil,
                 flightDuration: duration
             )
@@ -465,6 +472,7 @@ final class AppController: ObservableObject {
         } else {
             UserDefaults.standard.removeObject(forKey: Self.disabledReminderEventIDsKey)
             UserDefaults.standard.removeObject(forKey: Self.reminderLeadMinutesKey)
+            UserDefaults.standard.removeObject(forKey: Self.censorModeKey)
             UserDefaults.standard.removeObject(forKey: Self.flightDurationKey)
         }
         UserDefaults.standard.synchronize()
