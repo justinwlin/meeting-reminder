@@ -1,6 +1,8 @@
 # MeetingReminder
 
-![MeetingReminder demo](media/demo.gif)
+<p align="center">
+  <img src="media/meeting-reminder-demo.gif" alt="MeetingReminder demo" width="720">
+</p>
 
 A macOS menu bar app that reads Google Calendar directly and flies a banner
 across your screen before meetings.
