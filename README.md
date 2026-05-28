@@ -5,9 +5,9 @@
 A macOS menu bar app that reads Google Calendar directly and flies a banner
 across your screen before meetings.
 
-The app uses Google's desktop OAuth flow with PKCE, stores the refresh token in
-Keychain, polls Google Calendar every 60 seconds, and shows the existing
-airplane banner around five minutes before each meeting.
+The app uses Google's desktop OAuth flow with PKCE, stores the refresh token
+locally, polls Google Calendar every 60 seconds, and shows the existing airplane
+banner around five minutes before each meeting.
 
 ---
 
@@ -62,8 +62,16 @@ Then:
 3. Complete the browser sign-in
 4. Return to MeetingReminder after the success page appears
 
-The connected email appears in the menu bar popover. Tokens are stored in
-macOS Keychain.
+The connected email appears in the menu bar popover.
+
+Debug builds store Google tokens in:
+
+```text
+~/Library/Application Support/MeetingReminder/GoogleOAuthCredential.json
+```
+
+That avoids repeated Keychain prompts while the app is unsigned or ad-hoc signed
+from Xcode. Signed release builds use macOS Keychain.
 
 ## Day Planner
 
@@ -106,7 +114,8 @@ one hour ahead, and fires when a checked meeting is roughly 4-6 minutes away.
 - **OAuth**: `GoogleOAuthService.swift` opens Google sign-in in the browser,
   uses a localhost callback, exchanges the authorization code for tokens, and
   refreshes access tokens when needed
-- **Token storage**: `KeychainStore.swift` stores the Google credential locally
+- **Token storage**: `GoogleOAuthService.swift` stores Google credentials in a
+  debug-only local file or, for signed release builds, macOS Keychain
 - **Calendar API**: `GoogleCalendarService.swift` reads selected Google
   calendars and events for the next hour or selected planner day
 - **Polling**: `CalendarPoller.swift` checks every 60 seconds and prevents

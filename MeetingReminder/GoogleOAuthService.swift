@@ -17,13 +17,37 @@ struct GoogleOAuthCredential: Codable {
     }
 }
 
+private protocol GoogleOAuthCredentialStoring {
+    func save(_ credential: GoogleOAuthCredential) throws
+    func load() throws -> GoogleOAuthCredential?
+    func delete() throws
+}
+
 final class GoogleOAuthService {
     private static let keychainService = "MeetingReminder.GoogleOAuth"
     private static let keychainAccount = "default"
 
+    #if DEBUG
+    private static let usesDebugFileStore = true
+    #else
+    private static let usesDebugFileStore = false
+    #endif
+
     private let authorizationEndpoint = URL(string: "https://accounts.google.com/o/oauth2/v2/auth")!
     private let tokenEndpoint = URL(string: "https://oauth2.googleapis.com/token")!
     private let userInfoEndpoint = URL(string: "https://openidconnect.googleapis.com/v1/userinfo")!
+    private let credentialStore: any GoogleOAuthCredentialStoring
+
+    init() {
+        if Self.usesDebugFileStore {
+            self.credentialStore = FileGoogleOAuthCredentialStore()
+        } else {
+            self.credentialStore = KeychainGoogleOAuthCredentialStore(
+                service: Self.keychainService,
+                account: Self.keychainAccount
+            )
+        }
+    }
 
     var hasCredential: Bool {
         (try? currentCredential()) != nil
@@ -34,11 +58,7 @@ final class GoogleOAuthService {
     }
 
     func currentCredential() throws -> GoogleOAuthCredential? {
-        try KeychainStore.load(
-            GoogleOAuthCredential.self,
-            service: Self.keychainService,
-            account: Self.keychainAccount
-        )
+        try credentialStore.load()
     }
 
     func signIn(credentials: GoogleOAuthClientCredentials) async throws -> GoogleOAuthCredential {
@@ -129,10 +149,7 @@ final class GoogleOAuthService {
     }
 
     func signOut() {
-        try? KeychainStore.delete(
-            service: Self.keychainService,
-            account: Self.keychainAccount
-        )
+        try? credentialStore.delete()
     }
 
     private func exchangeAuthorizationCode(
@@ -202,11 +219,7 @@ final class GoogleOAuthService {
     }
 
     private func store(_ credential: GoogleOAuthCredential) throws {
-        try KeychainStore.save(
-            credential,
-            service: Self.keychainService,
-            account: Self.keychainAccount
-        )
+        try credentialStore.save(credential)
     }
 
     private static func randomURLSafeString(byteCount: Int) throws -> String {
@@ -235,6 +248,95 @@ final class GoogleOAuthService {
             let body = String(data: data, encoding: .utf8) ?? "No response body"
             throw GoogleOAuthError.httpError(status: http.statusCode, body: body)
         }
+    }
+}
+
+private struct KeychainGoogleOAuthCredentialStore: GoogleOAuthCredentialStoring {
+    let service: String
+    let account: String
+
+    func save(_ credential: GoogleOAuthCredential) throws {
+        try KeychainStore.save(
+            credential,
+            service: service,
+            account: account
+        )
+    }
+
+    func load() throws -> GoogleOAuthCredential? {
+        try KeychainStore.load(
+            GoogleOAuthCredential.self,
+            service: service,
+            account: account
+        )
+    }
+
+    func delete() throws {
+        try KeychainStore.delete(
+            service: service,
+            account: account
+        )
+    }
+}
+
+private struct FileGoogleOAuthCredentialStore: GoogleOAuthCredentialStoring {
+    private let fileManager: FileManager
+
+    init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+    }
+
+    func save(_ credential: GoogleOAuthCredential) throws {
+        try createCredentialDirectory()
+        let data = try JSONEncoder().encode(credential)
+        try data.write(to: credentialURL, options: [.atomic])
+        try fileManager.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: credentialURL.path
+        )
+    }
+
+    func load() throws -> GoogleOAuthCredential? {
+        guard fileManager.fileExists(atPath: credentialURL.path) else {
+            return nil
+        }
+
+        let data = try Data(contentsOf: credentialURL)
+        return try JSONDecoder().decode(GoogleOAuthCredential.self, from: data)
+    }
+
+    func delete() throws {
+        guard fileManager.fileExists(atPath: credentialURL.path) else {
+            return
+        }
+
+        try fileManager.removeItem(at: credentialURL)
+    }
+
+    private var credentialURL: URL {
+        credentialDirectoryURL.appendingPathComponent("GoogleOAuthCredential.json")
+    }
+
+    private var credentialDirectoryURL: URL {
+        if let appSupportURL = try? fileManager.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        ) {
+            return appSupportURL.appendingPathComponent("MeetingReminder", isDirectory: true)
+        }
+
+        return URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Application Support/MeetingReminder", isDirectory: true)
+    }
+
+    private func createCredentialDirectory() throws {
+        try fileManager.createDirectory(
+            at: credentialDirectoryURL,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
     }
 }
 
