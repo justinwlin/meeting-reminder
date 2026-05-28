@@ -24,29 +24,13 @@ private protocol GoogleOAuthCredentialStoring {
 }
 
 final class GoogleOAuthService {
-    private static let keychainService = "MeetingReminder.GoogleOAuth"
-    private static let keychainAccount = "default"
-
-    #if DEBUG
-    private static let usesDebugFileStore = true
-    #else
-    private static let usesDebugFileStore = false
-    #endif
-
     private let authorizationEndpoint = URL(string: "https://accounts.google.com/o/oauth2/v2/auth")!
     private let tokenEndpoint = URL(string: "https://oauth2.googleapis.com/token")!
     private let userInfoEndpoint = URL(string: "https://openidconnect.googleapis.com/v1/userinfo")!
     private let credentialStore: any GoogleOAuthCredentialStoring
 
     init() {
-        if Self.usesDebugFileStore {
-            self.credentialStore = FileGoogleOAuthCredentialStore()
-        } else {
-            self.credentialStore = KeychainGoogleOAuthCredentialStore(
-                service: Self.keychainService,
-                account: Self.keychainAccount
-            )
-        }
+        self.credentialStore = FileGoogleOAuthCredentialStore()
     }
 
     var hasCredential: Bool {
@@ -248,34 +232,6 @@ final class GoogleOAuthService {
             let body = String(data: data, encoding: .utf8) ?? "No response body"
             throw GoogleOAuthError.httpError(status: http.statusCode, body: body)
         }
-    }
-}
-
-private struct KeychainGoogleOAuthCredentialStore: GoogleOAuthCredentialStoring {
-    let service: String
-    let account: String
-
-    func save(_ credential: GoogleOAuthCredential) throws {
-        try KeychainStore.save(
-            credential,
-            service: service,
-            account: account
-        )
-    }
-
-    func load() throws -> GoogleOAuthCredential? {
-        try KeychainStore.load(
-            GoogleOAuthCredential.self,
-            service: service,
-            account: account
-        )
-    }
-
-    func delete() throws {
-        try KeychainStore.delete(
-            service: service,
-            account: account
-        )
     }
 }
 

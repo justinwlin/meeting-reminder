@@ -64,14 +64,14 @@ Then:
 
 The connected email appears in the menu bar popover.
 
-Debug builds store Google tokens in:
+All local builds store Google tokens in:
 
 ```text
 ~/Library/Application Support/MeetingReminder/GoogleOAuthCredential.json
 ```
 
 That avoids repeated Keychain prompts while the app is unsigned or ad-hoc signed
-from Xcode. Signed release builds use macOS Keychain.
+from Xcode. The file is created with user-only permissions.
 
 ## Day Planner
 
@@ -115,7 +115,7 @@ one hour ahead, and fires when a checked meeting is roughly 4-6 minutes away.
   uses a localhost callback, exchanges the authorization code for tokens, and
   refreshes access tokens when needed
 - **Token storage**: `GoogleOAuthService.swift` stores Google credentials in a
-  debug-only local file or, for signed release builds, macOS Keychain
+  local app-support file with user-only permissions
 - **Calendar API**: `GoogleCalendarService.swift` reads selected Google
   calendars and events for the next hour or selected planner day
 - **Polling**: `CalendarPoller.swift` checks every 60 seconds and prevents
@@ -139,7 +139,6 @@ MeetingReminder/
 ├── GoogleOAuthConfig.swift
 ├── GoogleCalendarService.swift
 ├── LocalOAuthRedirectServer.swift
-├── KeychainStore.swift
 ├── CalendarPoller.swift
 ├── AirplaneView.swift
 ├── AirplaneOverlayWindow.swift

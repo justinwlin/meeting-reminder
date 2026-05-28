@@ -31,15 +31,29 @@ final class GoogleCalendarService: CalendarSourceProvider {
         let calendars = try await fetchCalendars(accessToken: accessToken)
 
         var events: [CalendarEvent] = []
+        var successfulCalendarCount = 0
+        var firstCalendarError: Error?
         for calendar in calendars {
-            let calendarEvents = try await fetchEvents(
-                calendarID: calendar.id,
-                calendarSummary: calendar.summary,
-                accessToken: accessToken,
-                start: start,
-                end: end
-            )
-            events.append(contentsOf: calendarEvents)
+            do {
+                let calendarEvents = try await fetchEvents(
+                    calendarID: calendar.id,
+                    calendarSummary: calendar.summary,
+                    accessToken: accessToken,
+                    start: start,
+                    end: end
+                )
+                successfulCalendarCount += 1
+                events.append(contentsOf: calendarEvents)
+            } catch GoogleCalendarError.httpError(let status, _) where status == 404 {
+                firstCalendarError = firstCalendarError ?? GoogleCalendarError.calendarNotFound(calendar.summary)
+                continue
+            } catch {
+                throw error
+            }
+        }
+
+        if successfulCalendarCount == 0, let firstCalendarError {
+            throw firstCalendarError
         }
 
         return events.sorted { $0.startDate < $1.startDate }
@@ -70,7 +84,7 @@ final class GoogleCalendarService: CalendarSourceProvider {
         var components = URLComponents()
         components.scheme = "https"
         components.host = "www.googleapis.com"
-        components.path = "/calendar/v3/calendars/\(Self.pathEscaped(calendarID))/events"
+        components.percentEncodedPath = "/calendar/v3/calendars/\(Self.pathEscaped(calendarID))/events"
         components.queryItems = [
             URLQueryItem(name: "timeMin", value: Self.rfc3339String(from: start)),
             URLQueryItem(name: "timeMax", value: Self.rfc3339String(from: end)),
@@ -186,11 +200,14 @@ private struct GoogleEventAttendee: Decodable {
 
 enum GoogleCalendarError: LocalizedError {
     case httpError(status: Int, body: String)
+    case calendarNotFound(String)
 
     var errorDescription: String? {
         switch self {
         case .httpError(let status, let body):
             return "Google Calendar returned HTTP \(status): \(body)"
+        case .calendarNotFound(let calendarName):
+            return "Google Calendar could not find \(calendarName). Try hiding that calendar in Google Calendar or reconnecting Google."
         }
     }
 }
