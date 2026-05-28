@@ -9,40 +9,7 @@ struct MenuBarView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 6) {
-                if controller.hasGoogleAccess {
-                    Label(controller.googleEmail ?? "Google Calendar connected", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                } else {
-                    Label("Google Calendar not connected", systemImage: "person.crop.circle.badge.exclamationmark")
-                        .foregroundStyle(.secondary)
-                }
-
-                if let authError = controller.authError {
-                    Text(authError)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.red)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            if controller.hasGoogleAccess {
-                Button {
-                    controller.disconnectGoogle()
-                } label: {
-                    Label("Disconnect Google", systemImage: "person.crop.circle.badge.minus")
-                }
-                .buttonStyle(.plain)
-            } else {
-                Button {
-                    controller.connectGoogle()
-                } label: {
-                    Label(controller.isConnectingGoogle ? "Connecting..." : "Connect Google", systemImage: "person.crop.circle.badge.plus")
-                        .font(.system(size: 13, weight: .medium))
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(controller.isConnectingGoogle)
-            }
+            accountSection
 
             if controller.hasGoogleAccess {
                 Divider()
@@ -58,6 +25,10 @@ struct MenuBarView: View {
             }
             .buttonStyle(.plain)
             .disabled(!controller.hasGoogleAccess)
+
+            Divider()
+
+            reminderLeadSection
 
             Divider()
 
@@ -98,6 +69,92 @@ struct MenuBarView: View {
         .onReceive(menuClock) { tick in
             now = tick
         }
+    }
+
+    private var accountSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if controller.hasGoogleAccess {
+                Label(accountSummary, systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            } else {
+                Label("Google Calendar not connected", systemImage: "person.crop.circle.badge.exclamationmark")
+                    .foregroundStyle(.secondary)
+            }
+
+            if controller.googleAccounts.isEmpty == false {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(controller.googleAccounts) { account in
+                        HStack(spacing: 8) {
+                            Image(systemName: "person.crop.circle")
+                                .foregroundStyle(.secondary)
+                            Text(account.displayName)
+                                .font(.system(size: 12))
+                                .lineLimit(1)
+
+                            Spacer(minLength: 6)
+
+                            Button {
+                                controller.removeGoogleAccount(account)
+                            } label: {
+                                Image(systemName: "xmark.circle")
+                            }
+                            .buttonStyle(.plain)
+                            .help("Remove account")
+                        }
+                    }
+                }
+            }
+
+            Button {
+                controller.connectGoogle()
+            } label: {
+                Label(connectButtonTitle, systemImage: "person.crop.circle.badge.plus")
+                    .font(.system(size: 13, weight: .medium))
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(controller.isConnectingGoogle)
+
+            if controller.googleAccounts.count > 1 {
+                Button {
+                    controller.disconnectAllGoogleAccounts()
+                } label: {
+                    Label("Remove all accounts", systemImage: "person.crop.circle.badge.minus")
+                }
+                .buttonStyle(.plain)
+            }
+
+            if let authError = controller.authError {
+                Text(authError)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var reminderLeadSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Reminder lead time")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+            Picker("Reminder lead time", selection: $controller.reminderLeadMinutes) {
+                ForEach(AppController.reminderLeadMinuteOptions, id: \.self) { minutes in
+                    Text("\(minutes)m").tag(minutes)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+        }
+    }
+
+    private var accountSummary: String {
+        let count = controller.googleAccounts.count
+        return count == 1 ? "1 Google account connected" : "\(count) Google accounts connected"
+    }
+
+    private var connectButtonTitle: String {
+        if controller.isConnectingGoogle { return "Connecting..." }
+        return controller.hasGoogleAccess ? "Connect another account" : "Connect Google"
     }
 
     private var nextAlarmsSection: some View {
@@ -185,7 +242,11 @@ private struct NextAlarmRow: View {
     }
 
     private var triggerSummary: String {
-        "\(relativeTriggerText) · starts \(timeText(for: alarm.event.startDate))"
+        var parts = [relativeTriggerText, "starts \(timeText(for: alarm.event.startDate))"]
+        if let accountEmail = alarm.event.accountEmail, accountEmail.isEmpty == false {
+            parts.append(accountEmail)
+        }
+        return parts.joined(separator: " · ")
     }
 
     private var relativeTriggerText: String {
@@ -396,6 +457,7 @@ private struct DayPlannerEventRow: View {
                 Text(timeRange)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
 
             Spacer()
@@ -413,6 +475,9 @@ private struct DayPlannerEventRow: View {
     private var timeRange: String {
         let start = event.startDate.formatted(.dateTime.hour().minute())
         let end = event.endDate.formatted(.dateTime.hour().minute())
+        if let accountEmail = event.accountEmail, accountEmail.isEmpty == false {
+            return "\(start) - \(end) · \(accountEmail)"
+        }
         return "\(start) - \(end)"
     }
 }

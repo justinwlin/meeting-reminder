@@ -4,6 +4,7 @@ import Foundation
 import Security
 
 struct GoogleOAuthCredential: Codable {
+    var accountID: String?
     var accessToken: String
     var refreshToken: String?
     var expiresAt: Date
@@ -17,10 +18,20 @@ struct GoogleOAuthCredential: Codable {
     }
 }
 
+struct ConnectedGoogleAccount: Identifiable, Equatable {
+    let id: String
+    let email: String
+
+    var displayName: String {
+        email.isEmpty ? "Google Account" : email
+    }
+}
+
 private protocol GoogleOAuthCredentialStoring {
-    func save(_ credential: GoogleOAuthCredential) throws
-    func load() throws -> GoogleOAuthCredential?
-    func delete() throws
+    func saveAll(_ credentials: [GoogleOAuthCredential]) throws
+    func loadAll() throws -> [GoogleOAuthCredential]
+    func delete(accountID: String) throws
+    func deleteAll() throws
 }
 
 final class GoogleOAuthService {
@@ -34,15 +45,13 @@ final class GoogleOAuthService {
     }
 
     var hasCredential: Bool {
-        (try? currentCredential()) != nil
+        ((try? credentialStore.loadAll()) ?? []).isEmpty == false
     }
 
-    var currentEmail: String? {
-        (try? currentCredential())??.email
-    }
-
-    func currentCredential() throws -> GoogleOAuthCredential? {
-        try credentialStore.load()
+    var connectedAccounts: [ConnectedGoogleAccount] {
+        ((try? credentialStore.loadAll()) ?? [])
+            .map(Self.account(from:))
+            .sorted { $0.email.localizedCaseInsensitiveCompare($1.email) == .orderedAscending }
     }
 
     func signIn(credentials: GoogleOAuthClientCredentials) async throws -> GoogleOAuthCredential {
@@ -66,7 +75,7 @@ final class GoogleOAuthService {
             URLQueryItem(name: "response_type", value: "code"),
             URLQueryItem(name: "scope", value: "openid email profile https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.events.readonly"),
             URLQueryItem(name: "access_type", value: "offline"),
-            URLQueryItem(name: "prompt", value: "consent"),
+            URLQueryItem(name: "prompt", value: "consent select_account"),
             URLQueryItem(name: "code_challenge", value: challenge),
             URLQueryItem(name: "code_challenge_method", value: "S256"),
             URLQueryItem(name: "state", value: state)
@@ -97,13 +106,19 @@ final class GoogleOAuthService {
             codeVerifier: verifier,
             redirectURI: redirectURI.absoluteString
         )
-        credential.email = try? await fetchEmail(accessToken: credential.accessToken)
-        try store(credential)
+        if let userInfo = try? await fetchUserInfo(accessToken: credential.accessToken) {
+            credential.accountID = userInfo.sub ?? userInfo.email
+            credential.email = userInfo.email
+        }
+        if credential.accountID == nil {
+            credential.accountID = credential.email ?? UUID().uuidString
+        }
+        try storeAccount(credential)
         return credential
     }
 
-    func accessToken(credentials: GoogleOAuthClientCredentials) async throws -> String {
-        guard var credential = try currentCredential() else {
+    func accessToken(credentials: GoogleOAuthClientCredentials, accountID: String) async throws -> String {
+        guard var credential = try credentialStore.loadAll().first(where: { Self.accountID(for: $0) == accountID }) else {
             throw GoogleOAuthError.notSignedIn
         }
 
@@ -128,12 +143,16 @@ final class GoogleOAuthService {
             credential.refreshToken = newRefreshToken
         }
 
-        try store(credential)
+        try storeAccount(credential)
         return credential.accessToken
     }
 
-    func signOut() {
-        try? credentialStore.delete()
+    func signOut(accountID: String) {
+        try? credentialStore.delete(accountID: accountID)
+    }
+
+    func signOutAll() {
+        try? credentialStore.deleteAll()
     }
 
     private func exchangeAuthorizationCode(
@@ -182,6 +201,7 @@ final class GoogleOAuthService {
 
         let tokenResponse = try JSONDecoder().decode(GoogleTokenResponse.self, from: data)
         return GoogleOAuthCredential(
+            accountID: nil,
             accessToken: tokenResponse.accessToken,
             refreshToken: tokenResponse.refreshToken,
             expiresAt: Date().addingTimeInterval(TimeInterval(tokenResponse.expiresIn ?? 3_600)),
@@ -192,18 +212,46 @@ final class GoogleOAuthService {
         )
     }
 
-    private func fetchEmail(accessToken: String) async throws -> String? {
+    private func fetchUserInfo(accessToken: String) async throws -> GoogleUserInfo {
         var request = URLRequest(url: userInfoEndpoint)
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
 
         let (data, response) = try await URLSession.shared.data(for: request)
         try Self.validateHTTPResponse(response, data: data)
 
-        return try JSONDecoder().decode(GoogleUserInfo.self, from: data).email
+        return try JSONDecoder().decode(GoogleUserInfo.self, from: data)
     }
 
-    private func store(_ credential: GoogleOAuthCredential) throws {
-        try credentialStore.save(credential)
+    private func storeAccount(_ credential: GoogleOAuthCredential) throws {
+        let accountID = Self.accountID(for: credential)
+        var credentials = try credentialStore.loadAll()
+        let matchingIndex = credentials.firstIndex(where: { Self.accountID(for: $0) == accountID })
+            ?? credentials.firstIndex(where: { existing in
+                guard let email = credential.email else { return false }
+                return existing.email == email
+            })
+
+        if let index = matchingIndex {
+            var updated = credential
+            if updated.refreshToken == nil {
+                updated.refreshToken = credentials[index].refreshToken
+            }
+            credentials[index] = updated
+        } else {
+            credentials.append(credential)
+        }
+        try credentialStore.saveAll(credentials)
+    }
+
+    private static func account(from credential: GoogleOAuthCredential) -> ConnectedGoogleAccount {
+        ConnectedGoogleAccount(
+            id: accountID(for: credential),
+            email: credential.email ?? "Google Account"
+        )
+    }
+
+    private static func accountID(for credential: GoogleOAuthCredential) -> String {
+        credential.accountID ?? credential.email ?? "default"
     }
 
     private static func randomURLSafeString(byteCount: Int) throws -> String {
@@ -242,9 +290,10 @@ private struct FileGoogleOAuthCredentialStore: GoogleOAuthCredentialStoring {
         self.fileManager = fileManager
     }
 
-    func save(_ credential: GoogleOAuthCredential) throws {
+    func saveAll(_ credentials: [GoogleOAuthCredential]) throws {
         try createCredentialDirectory()
-        let data = try JSONEncoder().encode(credential)
+        let stored = StoredGoogleOAuthCredentials(version: 1, credentials: credentials)
+        let data = try JSONEncoder().encode(stored)
         try data.write(to: credentialURL, options: [.atomic])
         try fileManager.setAttributes(
             [.posixPermissions: 0o600],
@@ -252,16 +301,31 @@ private struct FileGoogleOAuthCredentialStore: GoogleOAuthCredentialStoring {
         )
     }
 
-    func load() throws -> GoogleOAuthCredential? {
+    func loadAll() throws -> [GoogleOAuthCredential] {
         guard fileManager.fileExists(atPath: credentialURL.path) else {
-            return nil
+            return []
         }
 
         let data = try Data(contentsOf: credentialURL)
-        return try JSONDecoder().decode(GoogleOAuthCredential.self, from: data)
+        if let stored = try? JSONDecoder().decode(StoredGoogleOAuthCredentials.self, from: data) {
+            return stored.credentials.map(normalizedCredential)
+        }
+
+        let legacyCredential = try JSONDecoder().decode(GoogleOAuthCredential.self, from: data)
+        return [normalizedCredential(legacyCredential)]
     }
 
-    func delete() throws {
+    func delete(accountID: String) throws {
+        var credentials = try loadAll()
+        credentials.removeAll { normalizedAccountID(for: $0) == accountID }
+        if credentials.isEmpty {
+            try deleteAll()
+        } else {
+            try saveAll(credentials)
+        }
+    }
+
+    func deleteAll() throws {
         guard fileManager.fileExists(atPath: credentialURL.path) else {
             return
         }
@@ -294,6 +358,23 @@ private struct FileGoogleOAuthCredentialStore: GoogleOAuthCredentialStoring {
             attributes: [.posixPermissions: 0o700]
         )
     }
+
+    private func normalizedCredential(_ credential: GoogleOAuthCredential) -> GoogleOAuthCredential {
+        var credential = credential
+        if credential.accountID == nil {
+            credential.accountID = credential.email ?? "default"
+        }
+        return credential
+    }
+
+    private func normalizedAccountID(for credential: GoogleOAuthCredential) -> String {
+        credential.accountID ?? credential.email ?? "default"
+    }
+}
+
+private struct StoredGoogleOAuthCredentials: Codable {
+    let version: Int
+    let credentials: [GoogleOAuthCredential]
 }
 
 private struct GoogleTokenResponse: Decodable {
@@ -315,6 +396,7 @@ private struct GoogleTokenResponse: Decodable {
 }
 
 private struct GoogleUserInfo: Decodable {
+    let sub: String?
     let email: String?
 }
 
@@ -342,7 +424,7 @@ enum GoogleOAuthError: LocalizedError {
         case .missingAuthorizationCode:
             return "Google did not return an authorization code."
         case .missingRefreshToken:
-            return "Google did not return a refresh token. Disconnect and connect again."
+            return "Google did not return a refresh token. Remove and reconnect this account."
         case .notSignedIn:
             return "Google Calendar is not connected."
         case .randomGenerationFailed(let status):

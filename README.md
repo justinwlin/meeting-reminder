@@ -5,9 +5,9 @@
 A macOS menu bar app that reads Google Calendar directly and flies a banner
 across your screen before meetings.
 
-The app uses Google's desktop OAuth flow with PKCE, stores the refresh token
+The app uses Google's desktop OAuth flow with PKCE, stores Google account tokens
 locally, refreshes Google Calendar on launch and every 10 minutes, and shows
-the existing airplane banner around five minutes before each meeting.
+the existing airplane banner before each meeting using your selected lead time.
 
 ---
 
@@ -29,7 +29,7 @@ No paid Apple Developer account is required. The project uses ad-hoc signing
 3. Enable **Google Calendar API**
 4. Open **APIs & Services -> OAuth consent screen**
 5. Set the app to **Testing**
-6. Add your Google account as a **Test user**
+6. Add the Google accounts you want to test as **Test users**
 7. Open **APIs & Services -> Credentials**
 8. Create **OAuth client ID**
 9. Choose **Desktop app**
@@ -62,9 +62,10 @@ Then:
 3. Complete the browser sign-in
 4. Return to MeetingReminder after the success page appears
 
-The connected email appears in the menu bar popover.
+Connected accounts appear in the menu bar popover. You can connect more
+accounts from the same menu and remove accounts individually.
 
-All local builds store Google tokens in:
+All local builds store connected Google account tokens in:
 
 ```text
 ~/Library/Application Support/MeetingReminder/GoogleOAuthCredential.json
@@ -86,8 +87,9 @@ Each timed event has a checkbox:
 - Choices are stored locally in `UserDefaults`.
 
 The menu bar popover shows the next three enabled reminder alarms and includes
-a manual refresh button. Calendar data refreshes on app launch, when you click
-refresh, and every 10 minutes while the app is running.
+a manual refresh button. It also lets you choose the reminder lead time. Calendar
+data refreshes on app launch, when you click refresh, and every 10 minutes while
+the app is running.
 
 The planner refreshes when it opens, when you change dates, when you click the
 refresh button, and every 10 minutes while the planner window is open.
@@ -100,14 +102,15 @@ Use **Test airplane** to verify the visual banner immediately.
 
 To test real Google Calendar polling:
 
-1. Create a Google Calendar event that starts about 5 minutes from now
+1. Create a Google Calendar event that starts about your selected lead time from now
 2. Make sure it is on a selected, visible calendar
 3. Keep MeetingReminder running
 4. Wait for the next poll cycle
 
 The app refreshes Google Calendar every 10 minutes and keeps a local cache of
-upcoming events. The background reminder checker scans that cached list every
-30 seconds and fires when a checked meeting is roughly 4-6 minutes away.
+upcoming events across connected accounts. The background reminder checker scans
+that cached list every 30 seconds and fires when a checked meeting is close to
+your selected lead time.
 
 ---
 
@@ -120,13 +123,14 @@ upcoming events. The background reminder checker scans that cached list every
   uses a localhost callback, exchanges the authorization code for tokens, and
   refreshes access tokens when needed
 - **Token storage**: `GoogleOAuthService.swift` stores Google credentials in a
-  local app-support file with user-only permissions
+  local multi-account app-support file with user-only permissions
 - **Calendar API**: `GoogleCalendarService.swift` reads selected Google
-  calendars and events for the upcoming cache window or selected planner day
+  calendars and events for every connected account
 - **Refresh**: `AppController.swift` refreshes calendar data on launch, manual
   refresh, and every 10 minutes
-- **Polling**: `CalendarPoller.swift` checks cached events every 30 seconds and
-  prevents duplicate alerts during the current app session
+- **Polling**: `CalendarPoller.swift` checks cached events every 30 seconds using
+  the selected lead time and prevents duplicate alerts during the current app
+  session
 - **Planner**: `MenuBarView.swift` lets you inspect a day/week and enable or
   disable reminders per event
 - **Banner**: `AirplaneOverlayWindow.swift` and `AirplaneView.swift` draw the
@@ -157,8 +161,6 @@ MeetingReminder/
 
 ## Current Limitations
 
-- The first pass stores one connected Google account
-- It reads selected visible calendars from that account
 - Per-meeting opt-in/opt-out is local to this Mac
 - Notifications are custom overlay banners, not macOS Notification Center banners
 - The local OAuth credential JSON is intentionally not committed

@@ -27,7 +27,45 @@ final class GoogleCalendarService: CalendarSourceProvider {
             throw GoogleOAuthError.missingClientID
         }
 
-        let accessToken = try await oauthService.accessToken(credentials: credentials)
+        let accounts = oauthService.connectedAccounts
+        guard accounts.isEmpty == false else {
+            throw GoogleOAuthError.notSignedIn
+        }
+
+        var events: [CalendarEvent] = []
+        var successfulAccountCount = 0
+        var firstAccountError: Error?
+
+        for account in accounts {
+            do {
+                let accessToken = try await oauthService.accessToken(credentials: credentials, accountID: account.id)
+                let accountEvents = try await fetchEvents(
+                    for: account,
+                    accessToken: accessToken,
+                    start: start,
+                    end: end
+                )
+                successfulAccountCount += 1
+                events.append(contentsOf: accountEvents)
+            } catch {
+                firstAccountError = firstAccountError ?? error
+                continue
+            }
+        }
+
+        if successfulAccountCount == 0, let firstAccountError {
+            throw firstAccountError
+        }
+
+        return events.sorted { $0.startDate < $1.startDate }
+    }
+
+    private func fetchEvents(
+        for account: ConnectedGoogleAccount,
+        accessToken: String,
+        start: Date,
+        end: Date
+    ) async throws -> [CalendarEvent] {
         let calendars = try await fetchCalendars(accessToken: accessToken)
 
         var events: [CalendarEvent] = []
@@ -36,6 +74,7 @@ final class GoogleCalendarService: CalendarSourceProvider {
         for calendar in calendars {
             do {
                 let calendarEvents = try await fetchEvents(
+                    account: account,
                     calendarID: calendar.id,
                     calendarSummary: calendar.summary,
                     accessToken: accessToken,
@@ -56,7 +95,7 @@ final class GoogleCalendarService: CalendarSourceProvider {
             throw firstCalendarError
         }
 
-        return events.sorted { $0.startDate < $1.startDate }
+        return events
     }
 
     private func fetchCalendars(accessToken: String) async throws -> [GoogleCalendarListEntry] {
@@ -75,6 +114,7 @@ final class GoogleCalendarService: CalendarSourceProvider {
     }
 
     private func fetchEvents(
+        account: ConnectedGoogleAccount,
         calendarID: String,
         calendarSummary: String,
         accessToken: String,
@@ -105,10 +145,12 @@ final class GoogleCalendarService: CalendarSourceProvider {
             }
 
             return CalendarEvent(
-                id: "\(calendarID):\(event.id)",
+                id: "\(account.id):\(calendarID):\(event.id)",
                 title: bannerTitle(for: event, fallbackCalendarName: calendarSummary),
                 startDate: startDate,
-                endDate: endDate
+                endDate: endDate,
+                accountID: account.id,
+                accountEmail: account.email
             )
         }
     }

@@ -14,12 +14,15 @@ struct ReminderAlarm: Identifiable {
 @MainActor
 final class AppController: ObservableObject {
     private static let disabledReminderEventIDsKey = "disabledReminderEventIDs"
+    private static let reminderLeadMinutesKey = "reminderLeadMinutes"
     static let calendarRefreshInterval: TimeInterval = 600
+    static let reminderLeadMinuteOptions = [1, 3, 5, 10, 15, 30]
     private static let upcomingEventWindow: TimeInterval = 7 * 86_400
     private static let reminderTriggerGraceInterval: TimeInterval = 60
 
-    @Published var hasGoogleAccess: Bool = false
-    @Published var googleEmail: String?
+    var hasGoogleAccess: Bool { !googleAccounts.isEmpty }
+
+    @Published private(set) var googleAccounts: [ConnectedGoogleAccount] = []
     @Published var isConnectingGoogle: Bool = false
     @Published var authError: String?
     @Published private(set) var upcomingEvents: [CalendarEvent] = []
@@ -31,6 +34,12 @@ final class AppController: ObservableObject {
     @Published var isLoadingPlannerEvents: Bool = false
     @Published var plannerError: String?
     @Published private(set) var disabledReminderEventIDs: Set<String>
+    @Published var reminderLeadMinutes: Int {
+        didSet {
+            UserDefaults.standard.set(reminderLeadMinutes, forKey: Self.reminderLeadMinutesKey)
+            poller?.checkNow()
+        }
+    }
     @Published var flightDuration: Double {
         didSet { UserDefaults.standard.set(flightDuration, forKey: "flightDuration") }
     }
@@ -47,6 +56,8 @@ final class AppController: ObservableObject {
     private var overlayWindows: [AirplaneOverlayWindow] = []
     private var plannerWindow: NSWindow?
     private var plannerWindowDelegate: PlannerWindowDelegate?
+    private var calendarRefreshGeneration = 0
+    private var plannerRefreshGeneration = 0
 
     init() {
         let oauthService = GoogleOAuthService()
@@ -57,11 +68,13 @@ final class AppController: ObservableObject {
         self.plannerDate = Calendar.current.startOfDay(for: Date())
         self.disabledReminderEventIDs = Set(UserDefaults.standard.stringArray(forKey: Self.disabledReminderEventIDsKey) ?? [])
 
+        let savedLead = UserDefaults.standard.object(forKey: Self.reminderLeadMinutesKey) as? Int
+        self.reminderLeadMinutes = max(1, savedLead ?? CalendarPoller.defaultAlertMinutesBefore)
+
         let saved = UserDefaults.standard.double(forKey: "flightDuration")
         self.flightDuration = saved > 0 ? saved : Self.normalSpeed
 
-        hasGoogleAccess = oauthService.hasCredential
-        googleEmail = oauthService.currentEmail
+        googleAccounts = oauthService.connectedAccounts
         startPollingIfReady()
     }
 
@@ -82,10 +95,10 @@ final class AppController: ObservableObject {
             }
 
             do {
-                let credential = try await googleOAuthService.signIn(credentials: credentials)
+                _ = try await googleOAuthService.signIn(credentials: credentials)
                 updateUI {
-                    self.googleEmail = credential.email
-                    self.hasGoogleAccess = true
+                    self.reloadGoogleAccounts()
+                    self.resetCalendarData()
                     self.startPollingIfReady()
                     self.refreshPlannerEvents()
                 }
@@ -101,22 +114,28 @@ final class AppController: ObservableObject {
         }
     }
 
-    func disconnectGoogle() {
+    func removeGoogleAccount(_ account: ConnectedGoogleAccount) {
         updateUI {
-            self.poller?.stop()
-            self.poller = nil
-            self.calendarRefreshTimer?.invalidate()
-            self.calendarRefreshTimer = nil
-            self.googleOAuthService.signOut()
-            self.hasGoogleAccess = false
-            self.googleEmail = nil
+            self.googleOAuthService.signOut(accountID: account.id)
+            self.reloadGoogleAccounts()
+            self.resetCalendarData()
             self.authError = nil
-            self.upcomingEvents = []
-            self.calendarRefreshError = nil
-            self.lastCalendarRefreshDate = nil
-            self.isRefreshingCalendar = false
-            self.plannerEvents = []
-            self.plannerError = nil
+            if self.hasGoogleAccess {
+                self.startPollingIfReady()
+                self.refreshPlannerEvents()
+            } else {
+                self.stopPolling()
+            }
+        }
+    }
+
+    func disconnectAllGoogleAccounts() {
+        updateUI {
+            self.googleOAuthService.signOutAll()
+            self.reloadGoogleAccounts()
+            self.stopPolling()
+            self.resetCalendarData()
+            self.authError = nil
         }
     }
 
@@ -182,6 +201,7 @@ final class AppController: ObservableObject {
 
         let start = Date()
         let end = start.addingTimeInterval(Self.upcomingEventWindow)
+        let generation = calendarRefreshGeneration
         updateUI {
             self.isRefreshingCalendar = true
             self.calendarRefreshError = nil
@@ -191,7 +211,7 @@ final class AppController: ObservableObject {
             do {
                 let events = try await googleCalendarService.fetchEvents(start: start, end: end)
                 updateUI {
-                    guard self.hasGoogleAccess else { return }
+                    guard self.hasGoogleAccess, generation == self.calendarRefreshGeneration else { return }
                     self.upcomingEvents = events
                     self.lastCalendarRefreshDate = Date()
                     self.calendarRefreshError = nil
@@ -200,7 +220,7 @@ final class AppController: ObservableObject {
                 }
             } catch {
                 updateUI {
-                    guard self.hasGoogleAccess else { return }
+                    guard self.hasGoogleAccess, generation == self.calendarRefreshGeneration else { return }
                     self.calendarRefreshError = error.localizedDescription
                     self.isRefreshingCalendar = false
                 }
@@ -211,6 +231,7 @@ final class AppController: ObservableObject {
     func refreshPlannerEvents() {
         guard hasGoogleAccess else { return }
         let date = plannerDate
+        let generation = plannerRefreshGeneration
         updateUI {
             self.isLoadingPlannerEvents = true
             self.plannerError = nil
@@ -220,13 +241,15 @@ final class AppController: ObservableObject {
             do {
                 let events = try await googleCalendarService.fetchEvents(on: date)
                 updateUI {
-                    guard Calendar.current.isDate(self.plannerDate, inSameDayAs: date) else { return }
+                    guard generation == self.plannerRefreshGeneration,
+                          Calendar.current.isDate(self.plannerDate, inSameDayAs: date) else { return }
                     self.plannerEvents = events
                     self.isLoadingPlannerEvents = false
                 }
             } catch {
                 updateUI {
-                    guard Calendar.current.isDate(self.plannerDate, inSameDayAs: date) else { return }
+                    guard generation == self.plannerRefreshGeneration,
+                          Calendar.current.isDate(self.plannerDate, inSameDayAs: date) else { return }
                     self.plannerEvents = []
                     self.plannerError = error.localizedDescription
                     self.isLoadingPlannerEvents = false
@@ -259,7 +282,7 @@ final class AppController: ObservableObject {
                 return nil
             }
 
-            let triggerDate = event.startDate.addingTimeInterval(TimeInterval(-CalendarPoller.alertMinutesBefore * 60))
+            let triggerDate = event.startDate.addingTimeInterval(TimeInterval(-reminderLeadMinutes * 60))
             guard triggerDate >= earliestVisibleTrigger else { return nil }
             return ReminderAlarm(event: event, triggerDate: triggerDate)
         }
@@ -272,24 +295,49 @@ final class AppController: ObservableObject {
         let fake = CalendarEvent(
             id:        UUID().uuidString,
             title:     "Test Meeting",
-            startDate: Date().addingTimeInterval(300),
+            startDate: Date().addingTimeInterval(TimeInterval(reminderLeadMinutes * 60)),
             endDate:   Date().addingTimeInterval(1800)
         )
-        showAirplane(for: fake, minutesUntil: 5)
+        showAirplane(for: fake, minutesUntil: reminderLeadMinutes)
     }
 
     // MARK: Private
 
-    private func startPollingIfReady() {
+    private func reloadGoogleAccounts() {
+        googleAccounts = googleOAuthService.connectedAccounts
+    }
+
+    private func resetCalendarData() {
+        calendarRefreshGeneration += 1
+        plannerRefreshGeneration += 1
+        upcomingEvents = []
+        calendarRefreshError = nil
+        lastCalendarRefreshDate = nil
+        isRefreshingCalendar = false
+        plannerEvents = []
+        plannerError = nil
+        isLoadingPlannerEvents = false
+    }
+
+    private func stopPolling() {
         poller?.stop()
         poller = nil
         calendarRefreshTimer?.invalidate()
         calendarRefreshTimer = nil
+    }
+
+    private func startPollingIfReady() {
+        stopPolling()
         guard hasGoogleAccess else { return }
 
-        let p = CalendarPoller(eventsProvider: { [weak self] in
-            self?.upcomingEvents ?? []
-        })
+        let p = CalendarPoller(
+            eventsProvider: { [weak self] in
+                self?.upcomingEvents ?? []
+            },
+            alertMinutesBeforeProvider: { [weak self] in
+                self?.reminderLeadMinutes ?? CalendarPoller.defaultAlertMinutesBefore
+            }
+        )
         p.onMeetingSoon = { [weak self] event, minutes in
             self?.showAirplane(for: event, minutesUntil: minutes)
         }
