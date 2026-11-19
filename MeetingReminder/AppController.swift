@@ -22,6 +22,11 @@ final class AppController: ObservableObject {
     private static let upcomingEventWindow: TimeInterval = 7 * 86_400
     private static let reminderTriggerGraceInterval: TimeInterval = 60
     private static let flightDurationKey = "flightDuration"
+    private static let autoOpenMeetKey = "autoOpenMeet"
+    private static let autoOpenMeetLeadMinutesKey = "autoOpenMeetLeadMinutes"
+    static let defaultAutoOpenMeetLeadMinutes = 1
+    static let autoOpenMeetLeadMinuteOptions = [0, 1, 2, 3, 5, 10]
+    private static let chromeBundleID = "com.google.Chrome"
 
     var hasGoogleAccess: Bool { !googleAccounts.isEmpty }
 
@@ -52,6 +57,20 @@ final class AppController: ObservableObject {
     @Published var flightDuration: Double {
         didSet { UserDefaults.standard.set(flightDuration, forKey: Self.flightDurationKey) }
     }
+    /// Open the meeting's Google Meet link in Chrome automatically before it starts.
+    @Published var isAutoOpenMeetEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(isAutoOpenMeetEnabled, forKey: Self.autoOpenMeetKey)
+            meetPoller?.checkNow()
+        }
+    }
+    /// How many minutes before the start to open the Meet link (0 = at start time).
+    @Published var autoOpenMeetLeadMinutes: Int {
+        didSet {
+            UserDefaults.standard.set(autoOpenMeetLeadMinutes, forKey: Self.autoOpenMeetLeadMinutesKey)
+            meetPoller?.checkNow()
+        }
+    }
 
     /// Preset speeds (seconds for the plane to cross the screen).
     static let slowSpeed:   Double = 22
@@ -61,6 +80,10 @@ final class AppController: ObservableObject {
     private let googleOAuthService: GoogleOAuthService
     private let googleCalendarService: GoogleCalendarService
     private var poller: CalendarPoller?
+    private var meetPoller: CalendarPoller?
+    /// Meetings already auto-opened this session, so one meeting that shows up on
+    /// several connected accounts/calendars only opens a single Chrome tab.
+    private var autoOpenedMeetKeys: Set<String> = []
     private var calendarRefreshTimer: Timer?
     private var overlayWindows: [AirplaneOverlayWindow] = []
     private var quickMenuWindow: NSWindow?
@@ -85,6 +108,10 @@ final class AppController: ObservableObject {
 
         let saved = UserDefaults.standard.double(forKey: Self.flightDurationKey)
         self.flightDuration = saved > 0 ? saved : Self.normalSpeed
+
+        self.isAutoOpenMeetEnabled = UserDefaults.standard.object(forKey: Self.autoOpenMeetKey) as? Bool ?? true
+        let savedMeetLead = UserDefaults.standard.object(forKey: Self.autoOpenMeetLeadMinutesKey) as? Int
+        self.autoOpenMeetLeadMinutes = max(0, savedMeetLead ?? Self.defaultAutoOpenMeetLeadMinutes)
 
         googleAccounts = oauthService.connectedAccounts
         refreshLaunchAtLoginStatus()
@@ -164,6 +191,8 @@ final class AppController: ObservableObject {
             self.isCensorModeEnabled = false
             self.reminderLeadMinutes = CalendarPoller.defaultAlertMinutesBefore
             self.flightDuration = Self.normalSpeed
+            self.isAutoOpenMeetEnabled = true
+            self.autoOpenMeetLeadMinutes = Self.defaultAutoOpenMeetLeadMinutes
             self.plannerDate = Calendar.current.startOfDay(for: Date())
             self.authError = nil
             self.resetCalendarData()
@@ -335,6 +364,7 @@ final class AppController: ObservableObject {
                     self.calendarRefreshError = nil
                     self.isRefreshingCalendar = false
                     self.poller?.checkNow()
+                    self.meetPoller?.checkNow()
                 }
             } catch {
                 updateUI {
@@ -440,6 +470,9 @@ final class AppController: ObservableObject {
     private func stopPolling() {
         poller?.stop()
         poller = nil
+        meetPoller?.stop()
+        meetPoller = nil
+        autoOpenedMeetKeys = []
         calendarRefreshTimer?.invalidate()
         calendarRefreshTimer = nil
     }
@@ -465,12 +498,81 @@ final class AppController: ObservableObject {
         p.start()
         poller = p
 
+        let mp = CalendarPoller(
+            eventsProvider: { [weak self] in
+                self?.upcomingEvents ?? []
+            },
+            alertMinutesBeforeProvider: { [weak self] in
+                self?.autoOpenMeetLeadMinutes ?? AppController.defaultAutoOpenMeetLeadMinutes
+            }
+        )
+        mp.onMeetingSoon = { [weak self] event, _ in
+            self?.autoOpenMeet(for: event)
+        }
+        mp.shouldNotify = { [weak self] event in
+            guard let self else { return false }
+            // Only Google Meet links are opened without a click; other video links
+            // (which any invite can carry) are reachable through the Join button.
+            return self.isAutoOpenMeetEnabled && event.hasGoogleMeetLink && self.isReminderEnabled(for: event)
+        }
+        mp.start()
+        meetPoller = mp
+
         refreshCalendarEvents()
         calendarRefreshTimer = Timer.scheduledTimer(withTimeInterval: Self.calendarRefreshInterval, repeats: true) { [weak self] _ in
             DispatchQueue.main.async {
                 self?.refreshCalendarEvents()
             }
         }
+    }
+
+    /// Auto-open path: skips a meeting whose link was already opened for the same start
+    /// time (the same meeting seen through a second account or calendar).
+    private func autoOpenMeet(for event: CalendarEvent) {
+        guard let meetURL = event.meetURL else { return }
+        let key = "\(meetURL.absoluteString)|\(event.startDate.timeIntervalSince1970)"
+        guard autoOpenedMeetKeys.insert(key).inserted else { return }
+        openMeet(for: event)
+    }
+
+    /// Opens the event's Meet link in Google Chrome (falls back to the default browser),
+    /// signed in as the calendar's Google account when possible.
+    func openMeet(for event: CalendarEvent) {
+        guard let meetURL = event.meetURL else { return }
+        let url = Self.joinURL(for: meetURL, signedInAs: event.accountEmail)
+
+        guard let chromeURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.chromeBundleID) else {
+            NSWorkspace.shared.open(url)
+            return
+        }
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        // The completion handler runs on a background queue, so hop to main for the fallback.
+        NSWorkspace.shared.open([url], withApplicationAt: chromeURL, configuration: configuration) { @Sendable _, error in
+            guard error != nil else { return }
+            DispatchQueue.main.async {
+                _ = NSWorkspace.shared.open(url)
+            }
+        }
+    }
+
+    /// Adds `authuser=<email>` to Google Meet links so Chrome joins with the account
+    /// the event came from instead of the browser's default Google account.
+    private static func joinURL(for url: URL, signedInAs email: String?) -> URL {
+        guard let email, !email.isEmpty,
+              CalendarEvent.isGoogleMeetURL(url),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return url
+        }
+        var items = components.queryItems ?? []
+        guard !items.contains(where: { $0.name == "authuser" }) else { return url }
+        items.append(URLQueryItem(name: "authuser", value: email))
+        components.queryItems = items
+        // URLComponents leaves "+" unescaped, which a query parser reads as a space
+        // (matters for plus-addressed emails).
+        components.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%2B")
+        return components.url ?? url
     }
 
     private func showAirplane(for event: CalendarEvent, minutesUntil: Int) {
@@ -511,6 +613,8 @@ final class AppController: ObservableObject {
             UserDefaults.standard.removeObject(forKey: Self.reminderLeadMinutesKey)
             UserDefaults.standard.removeObject(forKey: Self.censorModeKey)
             UserDefaults.standard.removeObject(forKey: Self.flightDurationKey)
+            UserDefaults.standard.removeObject(forKey: Self.autoOpenMeetKey)
+            UserDefaults.standard.removeObject(forKey: Self.autoOpenMeetLeadMinutesKey)
         }
         UserDefaults.standard.synchronize()
     }

@@ -10,6 +10,8 @@ across your screen before meetings.
 The app uses Google's desktop OAuth flow with PKCE, stores Google account tokens
 locally, refreshes Google Calendar on launch and every 10 minutes, and shows
 the existing airplane banner before each meeting using your selected lead time.
+It can also open the meeting's Google Meet link in Chrome shortly before the
+meeting starts.
 
 This repository intentionally does not publish a prebuilt macOS app binary.
 Build it locally with your own Google OAuth desktop client so your calendar
@@ -107,8 +109,8 @@ That avoids repeated Keychain prompts while the app is unsigned or ad-hoc signed
 from Xcode. The file is created with user-only permissions.
 
 Use **Delete all local data** in the menu bar popover to remove connected
-account tokens and reset local preferences like reminder choices, lead time, and
-plane speed.
+account tokens and reset local preferences like reminder choices, lead time,
+auto-open Meet settings, and plane speed.
 
 Use **Launch at login** in the menu bar popover to register or unregister the
 app as a macOS Login Item. The same section shows the current Login Items
@@ -122,6 +124,30 @@ banner while leaving the underlying calendar data unchanged.
 If the macOS menu bar gets crowded, use the Dock/app icon as a fallback:
 right-click **MeetingReminder** in the Dock and choose **Show Quick Menu**.
 Clicking the Dock icon also reopens the quick menu window.
+
+## Auto-Open Google Meet
+
+When a meeting has a Google Meet link, MeetingReminder can open it in Google
+Chrome for you just before the meeting starts.
+
+- **Auto-open Google Meet** in the menu bar popover turns the feature on or off.
+  It is on by default.
+- **Open Meet** sets how early the link opens: **At start**, or 1, 2, 3, 5, or
+  10 minutes before the start time. The default is 1 minute.
+- The link opens with the Google account the event came from (`authuser`), so
+  Chrome joins as the right account when you are signed in to several. That
+  account must already be signed in to Chrome.
+- If Chrome is not installed, the link opens in your default browser.
+- Events unchecked in the Day planner are skipped, the same as for the banner.
+- A meeting that appears on more than one connected account opens only once.
+- Only `meet.google.com` links open automatically. Events with another video
+  link still get a **Join** button.
+
+Upcoming alarms in the menu bar popover show a **Join** button when the event
+has a video link, so you can open it early yourself.
+
+The existing `calendar.events.readonly` scope already returns Meet links, so no
+OAuth or Google Cloud changes are needed.
 
 ## Day Planner
 
@@ -182,6 +208,8 @@ your selected lead time.
   session
 - **Planner**: `MenuBarView.swift` lets you inspect a day/week and enable or
   disable reminders per event
+- **Auto-open Meet**: `AppController.swift` runs a second `CalendarPoller` with
+  the **Open Meet** lead time and opens the event's Meet link in Chrome
 - **Banner**: `AirplaneOverlayWindow.swift` and `AirplaneView.swift` draw the
   floating airplane banner above other windows
 

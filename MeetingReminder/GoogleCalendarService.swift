@@ -150,7 +150,8 @@ final class GoogleCalendarService: CalendarSourceProvider {
                 startDate: startDate,
                 endDate: endDate,
                 accountID: account.id,
-                accountEmail: account.email
+                accountEmail: account.email,
+                meetURL: event.meetURL
             )
         }
     }
@@ -214,6 +215,26 @@ private struct GoogleEvent: Decodable {
     let start: GoogleEventDate
     let end: GoogleEventDate
     let attendees: [GoogleEventAttendee]?
+    let hangoutLink: String?
+    let conferenceData: GoogleConferenceData?
+
+    /// Prefers the Meet link Google attaches to the event, then any video entry point.
+    /// Only web links are accepted, since this URL ends up being opened in a browser.
+    var meetURL: URL? {
+        if let url = Self.webURL(from: hangoutLink) { return url }
+        let video = conferenceData?.entryPoints?.first { $0.entryPointType == "video" }
+        return Self.webURL(from: video?.uri)
+    }
+
+    private static func webURL(from string: String?) -> URL? {
+        guard let string,
+              let url = URL(string: string),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "https" || scheme == "http" else {
+            return nil
+        }
+        return url
+    }
 
     var selfAttendeeResponseStatus: String? {
         attendees?.first(where: { $0.selfAttendee == true })?.responseStatus
@@ -228,6 +249,15 @@ private struct GoogleEventDate: Decodable {
         guard let dateTime else { return nil }
         return formatter.date(from: dateTime) ?? ISO8601DateFormatter().date(from: dateTime)
     }
+}
+
+private struct GoogleConferenceData: Decodable {
+    let entryPoints: [GoogleConferenceEntryPoint]?
+}
+
+private struct GoogleConferenceEntryPoint: Decodable {
+    let entryPointType: String?
+    let uri: String?
 }
 
 private struct GoogleEventAttendee: Decodable {
