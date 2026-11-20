@@ -40,6 +40,10 @@ struct MenuBarView: View {
 
             Divider()
 
+            autoOpenMeetSection
+
+            Divider()
+
             // Speed picker — how long the plane takes to cross the screen
             VStack(alignment: .leading, spacing: 4) {
                 Text("Plane speed")
@@ -216,6 +220,30 @@ struct MenuBarView: View {
         }
     }
 
+    private var autoOpenMeetSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(isOn: $controller.isAutoOpenMeetEnabled) {
+                Label("Auto-open Google Meet", systemImage: "video")
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .toggleStyle(.switch)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Open Meet")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Picker("Open Meet", selection: $controller.autoOpenMeetLeadMinutes) {
+                    ForEach(AppController.autoOpenMeetLeadMinuteOptions, id: \.self) { minutes in
+                        Text(minutes == 0 ? "At start" : "\(minutes)m").tag(minutes)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .disabled(!controller.isAutoOpenMeetEnabled)
+            }
+        }
+    }
+
     private var accountSummary: String {
         let count = controller.googleAccounts.count
         return count == 1 ? "1 Google account connected" : "\(count) Google accounts connected"
@@ -286,6 +314,7 @@ struct MenuBarView: View {
 }
 
 private struct NextAlarmRow: View {
+    @EnvironmentObject var controller: AppController
     let alarm: ReminderAlarm
     let now: Date
     let isCensoring: Bool
@@ -311,6 +340,14 @@ private struct NextAlarmRow: View {
             }
 
             Spacer(minLength: 0)
+
+            if alarm.event.meetURL != nil {
+                Button("Join") {
+                    controller.openMeet(for: alarm.event)
+                }
+                .controlSize(.small)
+                .help("Open the meeting link in Chrome")
+            }
         }
         .padding(.vertical, 2)
     }
